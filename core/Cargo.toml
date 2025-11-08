@@ -1,0 +1,14 @@
+[package]
+name = "core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-crypto-primitives = { workspace = true, features = ["constraints", "sponge", "crh", "merkle_tree"] }
+ark-ff = { workspace = true, features = ["asm"] }
+ark-ec = { workspace = true }
+ark-r1cs-std = { workspace = true }
+ark-relations = { workspace = true }
+ark-bn254 = { workspace = true, features = ["r1cs"] }
+ark-grumpkin = { workspace = true, features = ["r1cs"] }
+ark-std = { workspace = true, features = ["getrandom"] } 

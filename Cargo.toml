@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [ "aggregator", "client", "core" ]
+
+[workspace.dependencies]
+
+# Arkworks family
+ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives", default-features = false }
+ark-ec = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
+ark-ff = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
+ark-groth16 = { git = "https://github.com/arkworks-rs/groth16", default-features = false }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
+ark-poly-commit = { git = "https://github.com/arkworks-rs/poly-commit", default-features = false }
+ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std", default-features = false }
+ark-relations = { git = "https://github.com/arkworks-rs/snark", default-features = false }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
+ark-snark = { git = "https://github.com/arkworks-rs/snark", default-features = false }
+ark-std = { git = "https://github.com/arkworks-rs/std", default-features = false }
+
+# Ark curves
+ark-bn254 = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
+ark-grumpkin = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
+
+[patch.crates-io]
+# We depend on git versions of arkworks crates, but some of our dependencies
+# depend on crates.io versions, so we need to override them here to avoid
+# version conflicts.
+ark-ff = { git = "https://github.com/arkworks-rs/algebra" }
+ark-ec = { git = "https://github.com/arkworks-rs/algebra" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra" }
+ark-poly = { git = "https://github.com/arkworks-rs/algebra" }
+ark-std = { git = "https://github.com/arkworks-rs/std" }
+ark-crypto-primitives = { git = "https://github.com/winderica/crypto-primitives", rev = "af003fc" }
+ark-r1cs-std = { git = "https://github.com/winderica/r1cs-std", rev = "ae8283a" }         # "sw-fix-updated" branch
+
+# Curve crates also need git versions
+ark-bls12-381 = { git = "https://github.com/arkworks-rs/algebra" }
+ark-bn254 = { git = "https://github.com/arkworks-rs/algebra" }
+
+[patch."https://github.com/arkworks-rs/crypto-primitives"]
+ark-crypto-primitives = { git = "https://github.com/winderica/crypto-primitives", rev = "af003fc" }
+
+[patch."https://github.com/arkworks-rs/r1cs-std"]
+ark-r1cs-std = { git = "https://github.com/winderica/r1cs-std", rev = "ae8283a" }         # "sw-fix-updated" branch
