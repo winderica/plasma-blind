@@ -120,12 +120,17 @@ struct ShieldedTransactionVar<F: PrimeField> {
     outputs: Vec<FpVar<F>>,
 }
 
+// TODO: comm_tx = H(shielded_tx)
+// sent to aggregator to be included within the tx tree
+struct CommittedTransactionVar<F: PrimeField> {}
+
 fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>(
     cfg: &CRHParametersVar<C::BaseField>,
     sk: &FpVar<C::BaseField>, // TODO: sk and pk no longer being EC
 
     plain_tx: &PlainTransactionVar<C, CVar>,
     shielded_tx: &ShieldedTransactionVar<C::BaseField>,
+    committed_tx: &CommittedTransactionVar<C::BaseField>,
     input_openings: &[FpVar<C::BaseField>],
     output_openings: &[FpVar<C::BaseField>],
 
