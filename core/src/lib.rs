@@ -60,6 +60,7 @@ impl<F: PrimeField + Absorb> Nullifier<F> {
     }
 }
 
+#[derive(Clone, Debug)]
 struct NullifierVar<F: PrimeField> {
     value: FpVar<F>,
 }
@@ -117,14 +118,16 @@ struct PlainTransactionVar<
     outputs: Vec<UTXOVar<C, CVar>>,
 }
 
-struct ShieldedTransactionVar<F: PrimeField> {
+#[derive(Clone, Debug)]
+pub struct ShieldedTransactionVar<F: PrimeField> {
     inputs: Vec<NullifierVar<F>>,
     outputs: Vec<FpVar<F>>,
 }
 
 // TODO: comm_tx = H(shielded_tx)
 // sent to aggregator to be included within the tx tree
-struct CommittedTransactionVar<F: PrimeField> {
+#[derive(Clone, Debug)]
+pub struct CommittedTransactionVar<F: PrimeField> {
     _f: PhantomData<F>,
 }
 
