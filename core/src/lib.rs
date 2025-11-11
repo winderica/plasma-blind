@@ -1,6 +1,8 @@
 pub mod datastructures;
 pub mod primitives;
 
+use std::marker::PhantomData;
+
 use ark_crypto_primitives::{
     Error,
     crh::{
@@ -122,7 +124,9 @@ struct ShieldedTransactionVar<F: PrimeField> {
 
 // TODO: comm_tx = H(shielded_tx)
 // sent to aggregator to be included within the tx tree
-struct CommittedTransactionVar<F: PrimeField> {}
+struct CommittedTransactionVar<F: PrimeField> {
+    _f: PhantomData<F>,
+}
 
 fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>(
     cfg: &CRHParametersVar<C::BaseField>,
