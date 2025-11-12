@@ -124,17 +124,14 @@ pub struct ShieldedTransactionVar<F: PrimeField> {
     outputs: Vec<FpVar<F>>,
 }
 
-// TODO: comm_tx = H(shielded_tx)
+// TODO: comm_tx = root of tree built from plain tx
 // sent to aggregator to be included within the tx tree
-#[derive(Clone, Debug)]
-pub struct CommittedTransactionVar<F: PrimeField> {
-    _f: PhantomData<F>,
-}
+pub type CommittedTransactionVar<F> = FpVar<F>;
 
-// NOTE: here is how I would think about it?
+// NOTE: here is how I would think about it? (in this setup we don't need the shielded tx)
 // - inputs of the plain tx sum up to outputs of the plain tx
-// - the plain tx is correctly shielded
-// - the committed tx a root of a tree whose leaves are elements of the above shielded tx
+// - the plain tx is correctly formatted into a committed tx
+// - the committed tx is the root of a tree whose leaves are elements of the above plain tx
 // - the committed tx inputs UTXOs are from leaves of some other committed txs
 // - the committed tx inputs UTXOs "to" field correspond to my pubkey
 // - the committed tx inputs UTXOs resolve to a list of nullifiers
