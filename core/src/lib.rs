@@ -1,8 +1,7 @@
 pub mod datastructures;
 pub mod primitives;
 
-use std::marker::PhantomData;
-
+use crate::datastructures::transparenttx::constraints::TransparentTransactionVar;
 use ark_crypto_primitives::{
     Error,
     crh::{
@@ -12,21 +11,23 @@ use ark_crypto_primitives::{
             constraints::{CRHGadget, CRHParametersVar, TwoToOneCRHGadget},
         },
     },
+    merkle_tree::{
+        Config,
+        constraints::{ConfigGadget, PathVar},
+    },
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
-use ark_ec::{
-    CurveGroup,
-    short_weierstrass::{Projective, SWCurveConfig},
-};
-use ark_ff::{Field, PrimeField, UniformRand};
+use ark_ec::CurveGroup;
+use ark_ff::{PrimeField, UniformRand};
 use ark_r1cs_std::{
-    eq::EqGadget,
-    fields::fp::FpVar,
-    groups::{CurveVar, curves::short_weierstrass::ProjectiveVar},
-    uint64::UInt64,
+    eq::EqGadget, fields::fp::FpVar, groups::CurveVar, prelude::Boolean, uint64::UInt64,
 };
-use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use ark_relations::gr1cs::SynthesisError;
 use ark_std::rand::Rng;
+use datastructures::shieldedtx::{
+    ShieldedTransactionConfig,
+    constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
+};
 
 use crate::{
     datastructures::{
@@ -100,34 +101,6 @@ fn commit_utxo_var<
     TwoToOneCRHGadget::evaluate(cfg, &UTXOVarCRH::evaluate(cfg, utxo)?, r)
 }
 
-struct PlainTransaction<C: CurveGroup<BaseField: PrimeField + Absorb>> {
-    inputs: Vec<UTXO<C>>,
-    outputs: Vec<UTXO<C>>,
-}
-
-struct ShieldedTransaction<F: Field> {
-    inputs: Vec<Nullifier<F>>,
-    outputs: Vec<F>,
-}
-
-struct PlainTransactionVar<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    CVar: CurveVar<C, C::BaseField>,
-> {
-    inputs: Vec<UTXOVar<C, CVar>>,
-    outputs: Vec<UTXOVar<C, CVar>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ShieldedTransactionVar<F: PrimeField> {
-    inputs: Vec<NullifierVar<F>>,
-    outputs: Vec<FpVar<F>>,
-}
-
-// TODO: comm_tx = root of tree built from plain tx
-// sent to aggregator to be included within the tx tree
-pub type CommittedTransactionVar<F> = FpVar<F>;
-
 // NOTE: here is how I would think about it? (in this setup we don't need the shielded tx)
 // - inputs of the plain tx sum up to outputs of the plain tx
 // - the plain tx is correctly formatted into a committed tx
@@ -142,15 +115,49 @@ pub type CommittedTransactionVar<F> = FpVar<F>;
 fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>(
     cfg: &CRHParametersVar<C::BaseField>,
     sk: &FpVar<C::BaseField>, // TODO: sk and pk no longer being EC
-
-    plain_tx: &PlainTransactionVar<C, CVar>,
-    shielded_tx: &ShieldedTransactionVar<C::BaseField>,
-    committed_tx: &CommittedTransactionVar<C::BaseField>,
-    input_openings: &[FpVar<C::BaseField>],
-    output_openings: &[FpVar<C::BaseField>],
-
+    plain_tx: &TransparentTransactionVar<C, CVar>,
+    // leaf mt params of shielded tx
+    shielded_tx_leaf_config: &<<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::LeafHash as CRHSchemeGadget<
+        <ShieldedTransactionConfig<C> as Config>::LeafHash,
+        C::BaseField,
+    >>::ParametersVar,
+    // two-to-one mt params of shielded tx
+    shielded_tx_two_to_one_config: &<<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
+        <ShieldedTransactionConfig<C> as Config>::TwoToOneHash,
+        C::BaseField,
+    >>::ParametersVar,
+    // root of a tree
+    shielded_tx: &<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::InnerDigest,
+    // input utxos (first half of tree)
+    shielded_tx_inputs: &[<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::Leaf],
+    // output utxos (second half of tree)
+    shielded_tx_outputs: &[<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::Leaf],
+    // proving the shielded tx is correctly built
+    shielded_tx_proof: &[PathVar<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+        ShieldedTransactionConfigGadget<C, CVar>,
+    >],
+    // nullifiers for shielded tx inputs
+    nullifiers: &[NullifierVar<C::BaseField>],
     utxo_tree_root: &FpVar<C::BaseField>,
     signer_tree_root: &FpVar<C::BaseField>,
+    transaction_indexes: &[UInt64<C::BaseField>],
     utxo_indexes: &[UInt64<C::BaseField>],
     signer_indexes: &[UInt64<C::BaseField>],
     utxo_paths: &[MerkleSparseTreePathVar<
@@ -169,22 +176,43 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
     block_index: &UInt64<C::BaseField>,
 ) -> Result<(), SynthesisError> {
     // TODO: filter dummy UTXOs
-    for (nullifier, utxo_idx) in shielded_tx.inputs.iter().zip(utxo_indexes) {
+    // TODO: add transaction indexes to nullifier computation
+    for ((nullifier, utxo), utxo_idx) in nullifiers
+        .iter()
+        .zip(shielded_tx_inputs.iter())
+        .zip(utxo_indexes)
+    {
         NullifierVar::new(cfg, sk, utxo_idx, block_index)?
             .value
             .enforce_equal(&nullifier.value)?;
     }
     // TODO: check sk and pk match
 
-    for ((utxo, cm), r) in plain_tx
-        .outputs
+    // checks that shielded tx tree is correctly built
+    for (path, leaf) in shielded_tx_proof
         .iter()
-        .zip(&shielded_tx.outputs)
-        .zip(output_openings)
+        .zip(shielded_tx_inputs.iter().chain(shielded_tx_outputs))
     {
-        commit_utxo_var(cfg, utxo, r)?.enforce_equal(cm)?;
+        let res = path.verify_membership(
+            shielded_tx_leaf_config,
+            shielded_tx_two_to_one_config,
+            shielded_tx,
+            leaf,
+        )?;
+        res.enforce_equal(&Boolean::constant(true))?;
     }
 
+    // NOTE: I think this is not needed anymore?
+    //for ((utxo, cm), r) in plain_tx
+    //    .outputs
+    //    .iter()
+    //    .zip(&shielded_tx.outputs)
+    //    .zip(output_openings)
+    //{
+    //    commit_utxo_var(cfg, utxo, r)?.enforce_equal(cm)?;
+    //}
+
+    // checks plain_tx inputs sum up to outputs
     plain_tx
         .inputs
         .iter()
@@ -201,21 +229,22 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
     for ((((((utxo, r), utxo_idx), signer_idx), utxo_path), signer_path), sender_pk) in plain_tx
         .inputs
         .iter()
-        .zip(input_openings)
+        .zip(shielded_tx_inputs)
         .zip(utxo_indexes)
         .zip(signer_indexes)
         .zip(utxo_paths)
         .zip(signer_paths)
         .zip(sender_pks)
     {
-        let cm = commit_utxo_var(cfg, utxo, r)?;
-        utxo_path.check_membership_with_index(
-            cfg,
-            cfg,
-            utxo_tree_root,
-            &(cm, signer_idx.clone()),
-            utxo_idx,
-        )?;
+        // let cm = commit_utxo_var(cfg, utxo, r)?;
+        //utxo_path.check_membership_with_index(
+        //    cfg,
+        //    cfg,
+        //    utxo_tree_root,
+        //    &(cm, signer_idx.clone()),
+        //    utxo_idx,
+        //)?;
+
         signer_path.check_membership_with_index(
             cfg,
             cfg,
