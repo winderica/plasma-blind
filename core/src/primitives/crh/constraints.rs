@@ -2,24 +2,30 @@ use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
     crh::{
-        poseidon::constraints::{CRHGadget, CRHParametersVar},
         CRHSchemeGadget,
+        poseidon::constraints::{CRHGadget, CRHParametersVar},
     },
+    merkle_tree::constraints::ConfigGadget,
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar, uint64::UInt64};
 
-use crate::{datastructures::{
-    block::constraints::BlockVar, keypair::constraints::PublicKeyVar,
-    noncemap::constraints::NonceVar, transaction::constraints::TransactionVar,
-    utxo::constraints::UTXOVar,
-}, primitives::crh::CommittedUTXOCRH};
+use crate::{
+    datastructures::{
+        block::constraints::BlockVar,
+        keypair::constraints::PublicKeyVar,
+        noncemap::constraints::NonceVar,
+        shieldedtx::{ShieldedTransactionConfig, constraints::ShieldedTransactionConfigGadget},
+        utxo::constraints::UTXOVar,
+    },
+    primitives::crh::CommittedUTXOCRH,
+};
 
-use super::{BlockCRH, NonceCRH, PublicKeyCRH, TransactionCRH, UTXOCRH};
+use super::{BlockCRH, NonceCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH};
 
-pub struct TransactionVarCRH<C, CVar> {
+pub struct ShieldedTransactionVarCRH<C, CVar> {
     _c: PhantomData<C>,
     _cvar: PhantomData<CVar>,
 }
@@ -28,13 +34,13 @@ pub struct NonceVarCRH<F: PrimeField> {
     _f: PhantomData<F>,
 }
 
-impl<C, CVar> Default for TransactionVarCRH<C, CVar> {
+impl<C, CVar> Default for ShieldedTransactionVarCRH<C, CVar> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<C, CVar> TransactionVarCRH<C, CVar> {
+impl<C, CVar> ShieldedTransactionVarCRH<C, CVar> {
     pub fn new() -> Self {
         Self {
             _c: PhantomData,
@@ -44,18 +50,22 @@ impl<C, CVar> TransactionVarCRH<C, CVar> {
 }
 
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    CRHSchemeGadget<TransactionCRH<C>, C::BaseField> for TransactionVarCRH<C, CVar>
+    CRHSchemeGadget<ShieldedTransactionCRH<C>, C::BaseField>
+    for ShieldedTransactionVarCRH<C, CVar>
 {
-    type InputVar = TransactionVar<C, CVar>;
+    type InputVar = <ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::InnerDigest;
     type OutputVar = FpVar<C::BaseField>;
     type ParametersVar = CRHParametersVar<C::BaseField>;
 
     fn evaluate(
-        parameters: &Self::ParametersVar,
+        _parameters: &Self::ParametersVar,
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        let elements: Vec<FpVar<_>> = input.try_into()?;
-        CRHGadget::evaluate(parameters, &elements)
+        // hash of a committed transaction is identity, since it is already a shielded tx
+        Ok(input.clone())
     }
 }
 
@@ -96,7 +106,11 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     }
 }
 
-pub struct UTXOVarCRH<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>> {
+#[derive(Default)]
+pub struct UTXOVarCRH<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    CVar: CurveVar<C, C::BaseField>,
+> {
     _c: PhantomData<C>,
     _cv: PhantomData<CVar>,
 }
@@ -155,7 +169,6 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockCRH<F>, F> for BlockVarCRH<F> 
         CRHGadget::evaluate(
             parameters,
             &[
-                input.utxo_tree_root.clone(),
                 input.tx_tree_root.clone(),
                 input.signer_tree_root.clone(),
                 input.height.clone(),

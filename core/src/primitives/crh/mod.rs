@@ -14,7 +14,7 @@ use ark_ff::{Field, PrimeField};
 use ark_std::rand::Rng;
 
 use crate::datastructures::{
-    block::Block, keypair::PublicKey, noncemap::Nonce, transaction::Transaction, utxo::UTXO,
+    block::Block, keypair::PublicKey, noncemap::Nonce, shieldedtx::ShieldedTransaction, utxo::UTXO,
 };
 
 pub mod constraints;
@@ -50,30 +50,26 @@ pub fn poseidon_canonical_config<F: PrimeField>() -> PoseidonConfig<F> {
     poseidon_custom_config(full_rounds, partial_rounds, alpha, rate, 1)
 }
 
-// computes H(transaction)
-pub struct TransactionCRH<C: CurveGroup> {
+pub struct ShieldedTransactionCRH<C: CurveGroup> {
     _c: PhantomData<C>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for TransactionCRH<C> {
-    type Input = Transaction<C>;
+// hash of a committed transaction is identity, since it is already a shielded tx
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for ShieldedTransactionCRH<C> {
+    type Input = C::BaseField;
     type Output = C::BaseField;
     type Parameters = PoseidonConfig<C::BaseField>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        // automatic generation of parameters are not implemented yet
-        // therefore, the developers must specify the parameters themselves
         unimplemented!()
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
-        parameters: &Self::Parameters,
+        _parameters: &Self::Parameters,
         input: T,
     ) -> Result<Self::Output, Error> {
-        let tx: &Transaction<C> = input.borrow();
-        let elements: Vec<_> = tx.into();
-        let res = CRH::evaluate(parameters, elements.as_slice())?;
-        Ok(res)
+        let res = input.borrow();
+        Ok(*res)
     }
 }
 
@@ -221,7 +217,6 @@ impl<F: PrimeField + Absorb> CRHScheme for BlockCRH<F> {
     ) -> Result<Self::Output, Error> {
         let block = input.borrow();
         let input = [
-            block.utxo_tree_root,
             block.tx_tree_root,
             block.signer_tree_root,
             F::from(block.height as u64),
@@ -244,16 +239,8 @@ pub mod tests {
 
     use super::*;
     use crate::{
-        datastructures::{
-            keypair::{KeyPair, PublicKey, constraints::PublicKeyVar},
-            transaction::{Transaction, constraints::TransactionVar},
-            user::User,
-            utxo::UTXO,
-        },
-        primitives::crh::{
-            PublicKeyCRH,
-            constraints::{PublicKeyVarCRH, TransactionVarCRH},
-        },
+        datastructures::keypair::{KeyPair, PublicKey, constraints::PublicKeyVar},
+        primitives::crh::{PublicKeyCRH, constraints::PublicKeyVarCRH},
     };
 
     #[test]
@@ -284,56 +271,5 @@ pub mod tests {
             let random_pk_hash = PublicKeyCRH::evaluate(&pp, random_pk).unwrap();
             assert_ne!(random_pk_hash, res1);
         }
-    }
-
-    #[test]
-    fn test_transaction_crh() {
-        let mut rng = thread_rng();
-        let user_a = User::<Projective>::new(&mut rng, 42);
-        let cs = ConstraintSystem::<Fr>::new_ref();
-        let pp = poseidon_canonical_config();
-        let pp_var = CRHParametersVar::new_constant(cs.clone(), &pp).unwrap();
-
-        let tx_a = Transaction {
-            inputs: [
-                UTXO::new(user_a.keypair.pk, 80),
-                UTXO::new(user_a.keypair.pk, 20),
-                UTXO::dummy(),
-                UTXO::dummy(),
-            ],
-            outputs: [
-                UTXO::new(KeyPair::new(&mut rng).pk, 100),
-                UTXO::dummy(),
-                UTXO::dummy(),
-                UTXO::dummy(),
-            ],
-        };
-        let tx_b = Transaction {
-            inputs: [
-                UTXO::new(user_a.keypair.pk, 80),
-                UTXO::new(user_a.keypair.pk, 20),
-                UTXO::dummy(),
-                UTXO::dummy(),
-            ],
-            outputs: [
-                UTXO::new(KeyPair::new(&mut rng).pk, 100),
-                UTXO::dummy(),
-                UTXO::dummy(),
-                UTXO::dummy(),
-            ],
-        };
-        let a = TransactionCRH::evaluate(&pp, &tx_a).unwrap();
-        let b = TransactionCRH::evaluate(&pp, &tx_b).unwrap();
-
-        assert_ne!(a, b);
-
-        let tx_a_var = TransactionVar::<_, GVar>::new_witness(cs.clone(), || Ok(tx_a)).unwrap();
-        let tx_b_var = TransactionVar::<_, GVar>::new_witness(cs.clone(), || Ok(tx_b)).unwrap();
-
-        let a_var = TransactionVarCRH::evaluate(&pp_var, &tx_a_var).unwrap();
-        let b_var = TransactionVarCRH::evaluate(&pp_var, &tx_b_var).unwrap();
-
-        assert_eq!(a_var.value().unwrap(), a);
-        assert_eq!(b_var.value().unwrap(), b);
     }
 }
