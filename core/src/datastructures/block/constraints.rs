@@ -5,9 +5,9 @@ use ark_relations::gr1cs::SynthesisError;
 
 use super::Block;
 
+// I'm not sure we need the nullifier tree in the block?
 #[derive(Clone, Debug)]
 pub struct BlockVar<F: PrimeField> {
-    pub utxo_tree_root: FpVar<F>,
     pub tx_tree_root: FpVar<F>,
     pub signer_tree_root: FpVar<F>,
     pub height: FpVar<F>,
@@ -22,13 +22,11 @@ impl<F: PrimeField> AllocVar<Block<F>, F> for BlockVar<F> {
         let cs = cs.into().cs();
         let res = f()?;
         let block = res.borrow();
-        let utxo_tree_root = FpVar::new_variable(cs.clone(), || Ok(block.utxo_tree_root), mode)?;
         let tx_tree_root = FpVar::new_variable(cs.clone(), || Ok(block.tx_tree_root), mode)?;
         let signer_tree_root =
             FpVar::new_variable(cs.clone(), || Ok(block.signer_tree_root), mode)?;
         let height = FpVar::new_variable(cs.clone(), || Ok(F::from(block.height as u64)), mode)?;
         Ok(BlockVar {
-            utxo_tree_root,
             tx_tree_root,
             signer_tree_root,
             height,
@@ -39,7 +37,6 @@ impl<F: PrimeField> AllocVar<Block<F>, F> for BlockVar<F> {
 impl<F: PrimeField> AbsorbGadget<F> for BlockVar<F> {
     fn to_sponge_bytes(&self) -> Result<Vec<UInt8<F>>, SynthesisError> {
         Ok([
-            self.utxo_tree_root.to_sponge_bytes()?,
             self.tx_tree_root.to_sponge_bytes()?,
             self.signer_tree_root.to_sponge_bytes()?,
             self.height.to_sponge_bytes()?,
@@ -47,11 +44,8 @@ impl<F: PrimeField> AbsorbGadget<F> for BlockVar<F> {
         .concat())
     }
 
-    fn to_sponge_field_elements(
-        &self,
-    ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+    fn to_sponge_field_elements(&self) -> Result<Vec<FpVar<F>>, SynthesisError> {
         Ok(vec![
-            self.utxo_tree_root.clone(),
             self.tx_tree_root.clone(),
             self.signer_tree_root.clone(),
             self.height.clone(),
