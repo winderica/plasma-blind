@@ -1,5 +1,6 @@
 pub mod datastructures;
 pub mod primitives;
+pub mod traits;
 
 use crate::datastructures::transparenttx::constraints::TransparentTransactionVar;
 use ark_crypto_primitives::{
@@ -25,7 +26,7 @@ use ark_r1cs_std::{
 use ark_relations::gr1cs::SynthesisError;
 use ark_std::rand::Rng;
 use datastructures::shieldedtx::{
-    ShieldedTransactionConfig,
+    ShieldedTransaction, ShieldedTransactionConfig,
     constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
 };
 
@@ -117,7 +118,7 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
     sk: &FpVar<C::BaseField>, // TODO: sk and pk no longer being EC
     plain_tx: &TransparentTransactionVar<C, CVar>,
     // leaf mt params of shielded tx
-    shielded_tx_leaf_config: &<<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+    shielded_tx_leaf_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::LeafHash as CRHSchemeGadget<
@@ -125,25 +126,21 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
         C::BaseField,
     >>::ParametersVar,
     // two-to-one mt params of shielded tx
-    shielded_tx_two_to_one_config: &<<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+    shielded_tx_two_to_one_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
         <ShieldedTransactionConfig<C> as Config>::TwoToOneHash,
         C::BaseField,
     >>::ParametersVar,
-    // root of a tree
-    shielded_tx: &<ShieldedTransactionVar<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-    >>::InnerDigest,
+    shielded_tx: &ShieldedTransactionVar<C, CVar>,
     // input utxos (first half of tree)
-    shielded_tx_inputs: &[<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+    shielded_tx_inputs: &[<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::Leaf],
     // output utxos (second half of tree)
-    shielded_tx_outputs: &[<ShieldedTransactionVar<C, CVar> as ConfigGadget<
+    shielded_tx_outputs: &[<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::Leaf],
@@ -196,7 +193,7 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
         let res = path.verify_membership(
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
-            shielded_tx,
+            &shielded_tx.shielded_tx,
             leaf,
         )?;
         res.enforce_equal(&Boolean::constant(true))?;

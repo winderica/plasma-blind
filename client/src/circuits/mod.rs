@@ -4,7 +4,7 @@ use core::{
         keypair::constraints::PublicKeyVar,
         shieldedtx::{
             constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-            ShieldedTransactionConfig,
+            ShieldedTransaction, ShieldedTransactionConfig,
         },
         signerlist::{constraints::SignerTreeConfigGadget, SignerTreeConfig},
         txtree::{constraints::TransactionTreeConfigGadget, TransactionTreeConfig},
@@ -68,14 +68,10 @@ pub struct UserCircuit<
 #[derive(Clone, Debug)]
 pub struct UserAuxVar<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>, CVar: CurveVar<C, F>> {
     pub block: BlockVar<F>,
-    // shielded tx comes with its index in the transaction tree which was built by the aggregator
-    pub shielded_tx: (
-        <ShieldedTransactionVar<C, CVar> as ConfigGadget<
-            ShieldedTransactionConfig<C>,
-            C::BaseField,
-        >>::InnerDigest,
-        FpVar<C::BaseField>,
-    ),
+    // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
+    pub shielded_tx: ShieldedTransactionVar<C, CVar>,
+    // index of transaction within transaction tree
+    pub tx_index: FpVar<C::BaseField>,
     // input utxos in shielded tx
     pub shielded_tx_inputs: Vec<UTXOVar<C, CVar>>,
     // output uxtos in shielded tx
@@ -151,24 +147,28 @@ impl<
             &FpVar::new_constant(cs.clone(), F::zero())?,
         )?;
 
-        let (shielded_tx, shielded_tx_idx) = aux.shielded_tx;
-
         // prev tx index should be strictly lower than the currently processed transaction
         let prev_tx_index_is_lower =
-            &prev_processed_tx_index.is_cmp(&shielded_tx_idx, Ordering::Less, false)?;
+            &prev_processed_tx_index.is_cmp(&aux.tx_index, Ordering::Less, false)?;
 
-        // check that tx is in tx tree
-        // if the tx is a dummy transaction, this check is not enforced
+        // check that shielded tx is in tx tree
         aux.shielded_tx_inclusion_proof
             .check_membership_with_index(
                 &self.pp,
                 &self.pp,
                 &aux.block.tx_tree_root,
-                &shielded_tx,
-                &shielded_tx_idx,
+                &aux.shielded_tx,
+                &aux.tx_index,
             )?;
 
-        // show that the committed tx is in the tx tree
+        // check that the signer bit is 1 for the corresponding transaction
+        aux.signer_pk_inclusion_proof.check_membership(
+            &self.pp,
+            &self.pp,
+            &aux.block.signer_tree_root,
+            &aux.shielded_tx.from,
+        )?;
+
         todo!()
     }
 }
