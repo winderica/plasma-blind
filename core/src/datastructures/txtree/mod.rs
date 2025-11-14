@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-use super::shieldedtx::ShieldedTransactionConfig;
+use super::shieldedtx::ShieldedTransaction;
 
 pub mod constraints;
 
@@ -28,7 +28,7 @@ pub struct TransactionTreeConfig<C: CurveGroup> {
 }
 
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>> Config for TransactionTreeConfig<C> {
-    type Leaf = <ShieldedTransactionConfig<C> as Config>::InnerDigest; // roots of shielded transactions
+    type Leaf = ShieldedTransaction<C>;
     type LeafDigest = C::BaseField;
     type LeafInnerDigestConverter = IdentityDigestConverter<C::BaseField>;
     type InnerDigest = C::BaseField;

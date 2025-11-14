@@ -11,9 +11,7 @@ use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
 use crate::{
     TX_TREE_HEIGHT,
-    datastructures::shieldedtx::{
-        ShieldedTransactionConfig, constraints::ShieldedTransactionConfigGadget,
-    },
+    datastructures::shieldedtx::constraints::ShieldedTransactionVar,
     primitives::{
         crh::constraints::ShieldedTransactionVarCRH, sparsemt::constraints::SparseConfigGadget,
     },
@@ -31,10 +29,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     ConfigGadget<TransactionTreeConfig<C>, C::BaseField> for TransactionTreeConfigGadget<C, CVar>
 {
     // leaves are shielded transactions (i.e. roots of a mt)
-    type Leaf = <ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-    >>::InnerDigest;
+    type Leaf = ShieldedTransactionVar<C, CVar>;
     type LeafDigest = FpVar<C::BaseField>;
     type LeafInnerConverter = IdentityDigestConverter<FpVar<C::BaseField>>;
     type InnerDigest = FpVar<C::BaseField>;
