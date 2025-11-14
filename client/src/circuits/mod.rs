@@ -16,6 +16,7 @@ use core::{
         sparsemt::constraints::MerkleSparseTreePathVar,
     },
 };
+use std::ops::Not;
 use std::{cmp::Ordering, marker::PhantomData};
 
 use ark_crypto_primitives::{
@@ -29,7 +30,8 @@ use ark_crypto_primitives::{
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
-    alloc::AllocVar, eq::EqGadget, fields::fp::FpVar, groups::CurveVar, select::CondSelectGadget,
+    alloc::AllocVar, eq::EqGadget, fields::fp::FpVar, groups::CurveVar, prelude::Boolean,
+    select::CondSelectGadget,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 
@@ -52,18 +54,16 @@ pub struct UserCircuit<
 }
 
 // Process transaction-wise. For each tx:
-// - get block content: (tx_tree, signer_tree) := block (not using the nullifier tree?)
-// - get committed tx content: committed_tx_root and utxo_openings
-// - show that committed_tx_root is in tx_tree
-// - show that signer bit for committed_tx_root has been set to 1
-// if this is receiving one or more utxo from this transaction:
-//      - prove that user knows opening of a utxo in this committed transaction
-//      - utxo "to" field corresponds to user's pk
-//      - increase user's balance
-// if this is processing a send transaction:
-//      - transaction "from" field is user's pk
-//      - decrease the user's balance
-//      - increase user's nonce by one
+// - get block content: (tx_tree, signer_tree) := block (not using the nullifier tree?) (ok)
+// - get shielded tx content: shielded transaction, index in tree and utxo openings (ok)
+// - show that shielded transaction is in tx tree (ok)
+// - show that signer bit for committed_tx_root has been set to 1 (ok)
+// - user is sender if transacation's pk is his pk (ok)
+// - for each utxo:
+//      - a utxo is valid when it is supposed to be opened and is in the shielded tx (ok)
+//      - if user is sender, he should process all utxos (ok)
+//      - if user is receiver and utxo is valid, increase balance (ok)
+//      - if user is sender and utxo is valid, decrease balance (ok)
 // - accumulate block hash
 #[derive(Clone, Debug)]
 pub struct UserAuxVar<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>, CVar: CurveVar<C, F>> {
@@ -72,18 +72,18 @@ pub struct UserAuxVar<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>, CVar
     pub shielded_tx: ShieldedTransactionVar<C, CVar>,
     // index of transaction within transaction tree
     pub tx_index: FpVar<C::BaseField>,
-    // input utxos in shielded tx
-    pub shielded_tx_inputs: Vec<UTXOVar<C, CVar>>,
-    // output uxtos in shielded tx
-    pub shielded_tx_outputs: Vec<UTXOVar<C, CVar>>,
+    // output utxos only from shielded tx
+    pub shielded_tx_utxos: Vec<UTXOVar<C, CVar>>,
     // openings for utxos
-    pub shielded_tx_proof: Vec<
+    pub shielded_tx_utxos_proofs: Vec<
         PathVar<
             ShieldedTransactionConfig<C>,
             C::BaseField,
             ShieldedTransactionConfigGadget<C, CVar>,
         >,
     >,
+    // openings mask - indicates if utxo should be opened. should be filled with true when user is sender.
+    pub openings_mask: Vec<Boolean<C::BaseField>>,
     // inclusion proof showing committed_tx was included in tx tree
     pub shielded_tx_inclusion_proof:
         MerkleSparseTreePathVar<TransactionTreeConfig<C>, F, TransactionTreeConfigGadget<C, CVar>>,
@@ -109,15 +109,7 @@ impl<
         z_i: Vec<FpVar<F>>,
         aux: UserAuxVar<F, C, CVar>,
     ) -> Result<Vec<FpVar<F>>, SynthesisError> {
-        let (
-            mut balance_t_plus_1,
-            mut nonce_t_plus_1,
-            pk_hash,
-            mut acc_t_plus_1,
-            mut prev_block_hash,
-            mut prev_block_number,
-            mut prev_processed_tx_index,
-        ) = (
+        let (balance, nonce, pk_hash, acc, block_hash, block_number, processed_tx_index) = (
             z_i[0].clone(),
             z_i[1].clone(),
             z_i[2].clone(),
@@ -132,24 +124,19 @@ impl<
         computed_pk_hash.enforce_equal(&pk_hash)?;
 
         // compute block hash and update accumulator value
-        let block_hash = BlockVarCRH::evaluate(&self.pp, &aux.block)?;
-        acc_t_plus_1 = A::update(&self.acc_pp, &acc_t_plus_1, &block_hash)?;
+        let next_block_hash = BlockVarCRH::evaluate(&self.pp, &aux.block)?;
+        let next_acc = A::update(&self.acc_pp, &acc, &block_hash)?;
 
         // ensure the current processed block number is equal or greater than the previous block
-        let _ = &prev_block_number.enforce_cmp(&aux.block.height, Ordering::Less, true)?;
+        let next_block_number = aux.block.height;
+        let _ = &block_number.enforce_cmp(&next_block_number, Ordering::Less, true)?;
 
-        // if prev_block_hash != currently_processed_block -> currently processed tx index should
-        // be reset to 0
-        let processing_same_block = block_hash.is_eq(&prev_block_hash)?;
-        prev_processed_tx_index = CondSelectGadget::conditionally_select(
-            &processing_same_block,
-            &prev_processed_tx_index,
-            &FpVar::new_constant(cs.clone(), F::zero())?,
-        )?;
-
-        // prev tx index should be strictly lower than the currently processed transaction
-        let prev_tx_index_is_lower =
-            &prev_processed_tx_index.is_cmp(&aux.tx_index, Ordering::Less, false)?;
+        // ensure that the processed tx has greater tx index (when processing same block)
+        let next_tx_index = aux.tx_index;
+        let is_same_block = next_block_hash.is_eq(&block_hash)?;
+        let is_higher_tx_index =
+            &next_tx_index.is_cmp(&processed_tx_index, Ordering::Greater, false)?;
+        is_higher_tx_index.conditional_enforce_equal(&Boolean::Constant(true), &is_same_block)?;
 
         // check that shielded tx is in tx tree
         aux.shielded_tx_inclusion_proof
@@ -158,10 +145,10 @@ impl<
                 &self.pp,
                 &aux.block.tx_tree_root,
                 &aux.shielded_tx,
-                &aux.tx_index,
+                &next_tx_index,
             )?;
 
-        // check that the signer bit is 1 for the corresponding transaction
+        // check that the signer bit is 1 for the corresponding transaction (i.e. pk is included)
         aux.signer_pk_inclusion_proof.check_membership(
             &self.pp,
             &self.pp,
@@ -169,6 +156,45 @@ impl<
             &aux.shielded_tx.from,
         )?;
 
-        todo!()
+        // validity of input utxos is already checked by the transaction validity circuit and the
+        // aggregator, so we only need to process the output utxos?
+        // note that the transaction validity circuit ensures that sum(inputs) == sum(outputs)
+        let is_sender = aux.pk.key.is_eq(&aux.shielded_tx.from.key)?;
+        let next_nonce = nonce + &is_sender.clone().into();
+        let mut next_balance = balance;
+
+        // if the user is the sender, he should provide data for all the output utxos
+        // if the user is not the sender, he should provide data for the output utxos sent to him
+        for ((is_opened, utxo), utxo_proof) in aux
+            .openings_mask
+            .iter()
+            .zip(aux.shielded_tx_utxos)
+            .zip(aux.shielded_tx_utxos_proofs)
+        {
+            let is_in_tree = utxo_proof.verify_membership(
+                &self.pp,
+                &self.pp,
+                &aux.shielded_tx.shielded_tx,
+                &utxo,
+            )?;
+
+            let is_valid_utxo = is_opened & is_in_tree;
+            Boolean::Constant(true).conditional_enforce_equal(&is_valid_utxo, &is_sender)?;
+
+            let is_receiver = utxo.pk.key.is_eq(&aux.pk.key)?;
+            let increase_balance = is_receiver.clone() & is_valid_utxo.clone();
+            let decrease_balance = is_sender.clone() & is_valid_utxo;
+            next_balance += utxo.amount.clone() * &increase_balance.into();
+            next_balance -= utxo.amount * &decrease_balance.into();
+        }
+        Ok(vec![
+            next_balance,
+            next_nonce,
+            pk_hash,
+            next_acc,
+            next_block_hash,
+            next_block_number,
+            next_tx_index,
+        ])
     }
 }

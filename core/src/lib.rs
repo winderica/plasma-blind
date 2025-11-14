@@ -1,6 +1,5 @@
 pub mod datastructures;
 pub mod primitives;
-pub mod traits;
 
 use crate::datastructures::transparenttx::constraints::TransparentTransactionVar;
 use ark_crypto_primitives::{
