@@ -17,7 +17,10 @@ use crate::{
         block::constraints::BlockVar,
         keypair::constraints::PublicKeyVar,
         noncemap::constraints::NonceVar,
-        shieldedtx::{ShieldedTransactionConfig, constraints::ShieldedTransactionConfigGadget},
+        shieldedtx::{
+            ShieldedTransaction, ShieldedTransactionConfig,
+            constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
+        },
         utxo::constraints::UTXOVar,
     },
     primitives::crh::CommittedUTXOCRH,
@@ -53,19 +56,18 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     CRHSchemeGadget<ShieldedTransactionCRH<C>, C::BaseField>
     for ShieldedTransactionVarCRH<C, CVar>
 {
-    type InputVar = <ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-    >>::InnerDigest;
+    type InputVar = ShieldedTransactionVar<C, CVar>;
     type OutputVar = FpVar<C::BaseField>;
     type ParametersVar = CRHParametersVar<C::BaseField>;
 
     fn evaluate(
-        _parameters: &Self::ParametersVar,
+        parameters: &Self::ParametersVar,
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
         // hash of a committed transaction is identity, since it is already a shielded tx
-        Ok(input.clone())
+        let pk_hash = PublicKeyVarCRH::evaluate(&parameters, &input.from)?;
+        let res = CRHGadget::evaluate(&parameters, &[pk_hash, input.shielded_tx.clone()])?;
+        Ok(res)
     }
 }
 

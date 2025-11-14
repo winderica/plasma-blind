@@ -14,7 +14,11 @@ use ark_ff::{Field, PrimeField};
 use ark_std::rand::Rng;
 
 use crate::datastructures::{
-    block::Block, keypair::PublicKey, noncemap::Nonce, shieldedtx::ShieldedTransaction, utxo::UTXO,
+    block::Block,
+    keypair::PublicKey,
+    noncemap::Nonce,
+    shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
+    utxo::UTXO,
 };
 
 pub mod constraints;
@@ -54,9 +58,9 @@ pub struct ShieldedTransactionCRH<C: CurveGroup> {
     _c: PhantomData<C>,
 }
 
-// hash of a committed transaction is identity, since it is already a shielded tx
+// hash(hash(pk), root shielded tx)
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for ShieldedTransactionCRH<C> {
-    type Input = C::BaseField;
+    type Input = ShieldedTransaction<C>;
     type Output = C::BaseField;
     type Parameters = PoseidonConfig<C::BaseField>;
 
@@ -65,11 +69,12 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for ShieldedTransa
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
-        _parameters: &Self::Parameters,
+        parameters: &Self::Parameters,
         input: T,
     ) -> Result<Self::Output, Error> {
         let res = input.borrow();
-        Ok(*res)
+        let pk_hash = PublicKeyCRH::evaluate(parameters, res.from)?;
+        Ok(CRH::evaluate(parameters, [pk_hash, res.shielded_tx])?)
     }
 }
 
