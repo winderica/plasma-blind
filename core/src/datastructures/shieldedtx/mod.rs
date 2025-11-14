@@ -2,19 +2,26 @@ use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
     crh::poseidon::TwoToOneCRH,
-    merkle_tree::{Config, IdentityDigestConverter, MerkleTree},
+    merkle_tree::{Config, IdentityDigestConverter, MerkleTree, constraints::ConfigGadget},
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
+use ark_r1cs_std::groups::CurveVar;
+use constraints::ShieldedTransactionConfigGadget;
 
 use crate::primitives::{crh::UTXOCRH, sparsemt::SparseConfig};
 
 pub mod constraints;
 
-use super::utxo::UTXO;
+use super::{keypair::PublicKey, utxo::UTXO};
 
-pub type ShieldedTransaction<P> = MerkleTree<P>;
+// what's sent to the aggregator
+#[derive(Default, Debug)]
+pub struct ShieldedTransaction<C: CurveGroup<BaseField: Absorb + PrimeField>> {
+    pub from: PublicKey<C>, // sender
+    pub shielded_tx: <ShieldedTransactionConfig<C> as Config>::InnerDigest, // root of mt
+}
 
 const SHIELDED_TX_TREE_HEIGHT: u64 = 3; // 4 inputs (resolving to 4 nullifiers) + 4 outputs
 

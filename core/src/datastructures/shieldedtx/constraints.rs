@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
     crh::poseidon::constraints::TwoToOneCRHGadget,
-    merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
+    merkle_tree::{Config, IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
@@ -10,13 +10,23 @@ use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
 use crate::{
-    datastructures::utxo::constraints::UTXOVar,
+    datastructures::{keypair::constraints::PublicKeyVar, utxo::constraints::UTXOVar},
     primitives::{crh::constraints::UTXOVarCRH, sparsemt::constraints::SparseConfigGadget},
 };
 
 use super::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransactionConfig};
 
-pub type ShieldedTransactionVar<C, CVar> = ShieldedTransactionConfigGadget<C, CVar>;
+#[derive(Clone, Debug)]
+pub struct ShieldedTransactionVar<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    CVar: CurveVar<C, C::BaseField>,
+> {
+    pub from: PublicKeyVar<C, CVar>,
+    pub shielded_tx: <ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::InnerDigest,
+}
 
 #[derive(Clone, Debug)]
 pub struct ShieldedTransactionConfigGadget<C, CVar> {
