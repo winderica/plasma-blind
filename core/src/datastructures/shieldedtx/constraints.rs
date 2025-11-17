@@ -7,14 +7,14 @@ use ark_crypto_primitives::{
 };
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
+use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, groups::CurveVar};
 
 use crate::{
     datastructures::{keypair::constraints::PublicKeyVar, utxo::constraints::UTXOVar},
     primitives::{crh::constraints::UTXOVarCRH, sparsemt::constraints::SparseConfigGadget},
 };
 
-use super::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransactionConfig};
+use super::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransaction, ShieldedTransactionConfig};
 
 #[derive(Clone, Debug)]
 pub struct ShieldedTransactionVar<
@@ -26,6 +26,23 @@ pub struct ShieldedTransactionVar<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::InnerDigest,
+}
+
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
+    AllocVar<ShieldedTransaction<C>, C::BaseField> for ShieldedTransactionVar<C, CVar>
+{
+    fn new_variable<T: std::borrow::Borrow<ShieldedTransaction<C>>>(
+        cs: impl Into<ark_relations::gr1cs::Namespace<C::BaseField>>,
+        f: impl FnOnce() -> Result<T, ark_relations::gr1cs::SynthesisError>,
+        mode: ark_r1cs_std::prelude::AllocationMode,
+    ) -> Result<Self, ark_relations::gr1cs::SynthesisError> {
+        let cs = cs.into().cs();
+        let res = f()?;
+        let tx: &ShieldedTransaction<C> = res.borrow();
+        let from = PublicKeyVar::new_variable(cs.clone(), || Ok(tx.from), mode)?;
+        let shielded_tx = FpVar::new_variable(cs.clone(), || Ok(tx.shielded_tx), mode)?;
+        Ok(ShieldedTransactionVar { from, shielded_tx })
+    }
 }
 
 #[derive(Clone, Debug)]

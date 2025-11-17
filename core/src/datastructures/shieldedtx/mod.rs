@@ -17,10 +17,18 @@ pub mod constraints;
 use super::{keypair::PublicKey, utxo::UTXO};
 
 // what's sent to the aggregator
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct ShieldedTransaction<C: CurveGroup<BaseField: Absorb + PrimeField>> {
     pub from: PublicKey<C>, // sender
     pub shielded_tx: <ShieldedTransactionConfig<C> as Config>::InnerDigest, // root of mt
+}
+
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>> AsRef<ShieldedTransaction<C>>
+    for ShieldedTransaction<C>
+{
+    fn as_ref(&self) -> &ShieldedTransaction<C> {
+        self
+    }
 }
 
 const SHIELDED_TX_TREE_HEIGHT: u64 = 3; // 4 inputs (resolving to 4 nullifiers) + 4 outputs
@@ -28,6 +36,12 @@ const SHIELDED_TX_TREE_HEIGHT: u64 = 3; // 4 inputs (resolving to 4 nullifiers) 
 #[derive(Clone, Debug)]
 pub struct ShieldedTransactionConfig<C: CurveGroup> {
     _c: PhantomData<C>,
+}
+
+impl<C: CurveGroup> AsRef<UTXO<C>> for UTXO<C> {
+    fn as_ref(&self) -> &UTXO<C> {
+        self
+    }
 }
 
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>> Config for ShieldedTransactionConfig<C> {
