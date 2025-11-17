@@ -33,10 +33,7 @@ use crate::{
     datastructures::{
         keypair::constraints::PublicKeyVar,
         signerlist::{SignerTreeConfig, constraints::SignerTreeConfigGadget},
-        utxo::{
-            CommittedUTXOTreeConfig, UTXO,
-            constraints::{CommittedUTXOTreeConfigGadget, UTXOVar},
-        },
+        utxo::{UTXO, constraints::UTXOVar},
     },
     primitives::{
         crh::{UTXOCRH, constraints::UTXOVarCRH},
@@ -49,14 +46,24 @@ const SIGNER_TREE_HEIGHT: u64 = TX_TREE_HEIGHT;
 
 type UserId = usize;
 
-struct Nullifier<F> {
+#[derive(Clone, Debug)]
+pub struct Nullifier<F> {
     value: F,
 }
 
 impl<F: PrimeField + Absorb> Nullifier<F> {
-    fn new(cfg: &PoseidonConfig<F>, sk: F, i: usize, t: usize) -> Result<Self, Error> {
+    pub fn new(
+        cfg: &PoseidonConfig<F>,
+        sk: F,
+        i: usize,
+        j: usize,
+        t: usize,
+    ) -> Result<Self, Error> {
         Ok(Self {
-            value: CRH::evaluate(cfg, [sk, F::from(i as u64), F::from(t as u64)])?,
+            value: CRH::evaluate(
+                cfg,
+                [sk, F::from(i as u64), F::from(j as u64), F::from(t as u64)],
+            )?,
         })
     }
 }
@@ -71,10 +78,11 @@ impl<F: PrimeField + Absorb> NullifierVar<F> {
         cfg: &CRHParametersVar<F>,
         sk: &FpVar<F>,
         i: &UInt64<F>,
+        j: &UInt64<F>,
         t: &UInt64<F>,
     ) -> Result<Self, SynthesisError> {
         Ok(Self {
-            value: CRHGadget::evaluate(cfg, &[sk.clone(), i.to_fp()?, t.to_fp()?])?,
+            value: CRHGadget::evaluate(cfg, &[sk.clone(), i.to_fp()?, j.to_fp()?, t.to_fp()?])?,
         })
     }
 }
@@ -156,11 +164,11 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
     transaction_indexes: &[UInt64<C::BaseField>],
     utxo_indexes: &[UInt64<C::BaseField>],
     signer_indexes: &[UInt64<C::BaseField>],
-    utxo_paths: &[MerkleSparseTreePathVar<
-        CommittedUTXOTreeConfig<C::BaseField>,
-        C::BaseField,
-        CommittedUTXOTreeConfigGadget<C::BaseField>,
-    >],
+    //utxo_paths: &[MerkleSparseTreePathVar<
+    //    CommittedUTXOTreeConfig<C::BaseField>,
+    //    C::BaseField,
+    //    CommittedUTXOTreeConfigGadget<C::BaseField>,
+    //>],
     signer_paths: &[MerkleSparseTreePathVar<
         SignerTreeConfig<C>,
         C::BaseField,
@@ -173,12 +181,13 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
 ) -> Result<(), SynthesisError> {
     // TODO: filter dummy UTXOs
     // TODO: add transaction indexes to nullifier computation
-    for ((nullifier, utxo), utxo_idx) in nullifiers
+    for (((nullifier, utxo), tx_idx), utxo_idx) in nullifiers
         .iter()
         .zip(shielded_tx_inputs.iter())
+        .zip(transaction_indexes)
         .zip(utxo_indexes)
     {
-        NullifierVar::new(cfg, sk, utxo_idx, block_index)?
+        NullifierVar::new(cfg, sk, tx_idx, utxo_idx, block_index)?
             .value
             .enforce_equal(&nullifier.value)?;
     }
@@ -222,13 +231,13 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
                 .sum::<FpVar<C::BaseField>>(),
         )?;
 
-    for ((((((utxo, r), utxo_idx), signer_idx), utxo_path), signer_path), sender_pk) in plain_tx
+    for (((((utxo, r), utxo_idx), signer_idx), signer_path), sender_pk) in plain_tx
         .inputs
         .iter()
         .zip(shielded_tx_inputs)
         .zip(utxo_indexes)
         .zip(signer_indexes)
-        .zip(utxo_paths)
+        //        .zip(utxo_paths)
         .zip(signer_paths)
         .zip(sender_pks)
     {
