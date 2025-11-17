@@ -456,7 +456,7 @@ mod test {
     fn good_root_membership_test() {
         let mut leaves = BTreeMap::new();
         for i in 1..10u8 {
-            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i as u64 * 10));
+            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i as u64 * 10, 0));
         }
         let n_constraints = generate_merkle_tree(&leaves, false);
         println!("good_root_membership_test n constraints: {}", n_constraints);
@@ -467,7 +467,7 @@ mod test {
     fn bad_root_membership_test() {
         let mut leaves = BTreeMap::new();
         for i in 1..10u8 {
-            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i as u64 * 10));
+            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i as u64 * 10, 0));
         }
         generate_merkle_tree(&leaves, true);
     }
@@ -573,12 +573,12 @@ mod test {
     fn good_root_update_test() {
         let mut old_leaves = BTreeMap::new();
         for i in 1..4u64 {
-            old_leaves.insert(i, UTXO::new(PublicKey::default(), i * 10));
+            old_leaves.insert(i, UTXO::new(PublicKey::default(), i * 10, 0));
         }
 
         let mut new_leaves = BTreeMap::new();
         for i in 1..4u64 {
-            new_leaves.insert(i, UTXO::new(PublicKey::default(), i * 100));
+            new_leaves.insert(i, UTXO::new(PublicKey::default(), i * 100, 0));
         }
         let n_constraints = generate_merkle_tree_and_test_update(&old_leaves, &new_leaves);
         println!("good_root_update_test n constraints: {}", n_constraints);

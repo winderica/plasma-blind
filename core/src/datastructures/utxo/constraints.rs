@@ -11,20 +11,22 @@ use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     fields::fp::FpVar,
     groups::CurveVar,
-    prelude::Boolean, uint64::UInt64,
+    prelude::Boolean,
+    uint64::UInt64,
 };
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use super::{UTXO, UTXOTreeConfig};
 use crate::{
-    datastructures::{keypair::constraints::PublicKeyVar, utxo::CommittedUTXOTreeConfig},
-    primitives::{crh::constraints::{CommittedUTXOVarCRH, UTXOVarCRH}, sparsemt::constraints::SparseConfigGadget},
+    datastructures::keypair::constraints::PublicKeyVar,
+    primitives::{crh::constraints::UTXOVarCRH, sparsemt::constraints::SparseConfigGadget},
 };
 
 #[derive(Clone, Debug)]
 pub struct UTXOVar<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>> {
     pub amount: FpVar<C::BaseField>,
     pub pk: PublicKeyVar<C, CVar>,
+    pub salt: FpVar<C::BaseField>,
     pub is_dummy: Boolean<C::BaseField>,
 }
 
@@ -39,6 +41,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
         let cs = cs.into().cs();
         let f = f()?;
         let UTXO {
+            salt,
             amount,
             pk,
             is_dummy,
@@ -46,6 +49,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
         Ok(Self {
             amount: FpVar::new_variable(cs.clone(), || Ok(C::BaseField::from(*amount)), mode)?,
             pk: PublicKeyVar::new_variable(cs.clone(), || Ok(*pk), mode)?,
+            salt: FpVar::new_variable(cs.clone(), || Ok(C::BaseField::from(*salt)), mode)?,
             is_dummy: Boolean::new_variable(cs, || Ok(is_dummy), mode)?,
         })
     }
@@ -71,23 +75,5 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
     SparseConfigGadget<UTXOTreeConfig<C>, C::BaseField> for UTXOTreeConfigGadget<C, CVar>
 {
-    const HEIGHT: u64 = 32;
-}
-
-#[derive(Clone, Debug)]
-pub struct CommittedUTXOTreeConfigGadget<F> {
-    _f: PhantomData<F>,
-}
-
-impl<F: PrimeField + Absorb> ConfigGadget<CommittedUTXOTreeConfig<F>, F> for CommittedUTXOTreeConfigGadget<F> {
-    type Leaf = (FpVar<F>, UInt64<F>);
-    type LeafDigest = FpVar<F>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
-    type InnerDigest = FpVar<F>;
-    type LeafHash = CommittedUTXOVarCRH<F>;
-    type TwoToOneHash = TwoToOneCRHGadget<F>;
-}
-
-impl<F: PrimeField + Absorb> SparseConfigGadget<CommittedUTXOTreeConfig<F>, F> for CommittedUTXOTreeConfigGadget<F> {
     const HEIGHT: u64 = 32;
 }

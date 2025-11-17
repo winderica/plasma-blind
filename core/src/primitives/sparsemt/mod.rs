@@ -615,14 +615,14 @@ mod test {
         let pp = poseidon_canonical_config();
         let mut leaves: BTreeMap<u64, UTXO<Projective>> = BTreeMap::new();
         for i in 1..10u8 {
-            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i.into()));
+            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i.into(), 0));
         }
         generate_merkle_tree_and_test_membership(&pp, &pp, &leaves);
         let mut leaves: BTreeMap<u64, UTXO<Projective>> = BTreeMap::new();
         for i in 1..100u8 {
             leaves.insert(
                 i as u64,
-                UTXO::<Projective>::new(PublicKey::default(), i.into()),
+                UTXO::<Projective>::new(PublicKey::default(), i.into(), 0),
             );
         }
         generate_merkle_tree_and_test_membership(&pp, &pp, &leaves);
@@ -656,7 +656,7 @@ mod test {
         let pp = poseidon_canonical_config::<Fr>();
         let mut leaves: BTreeMap<u64, UTXO<Projective>> = BTreeMap::new();
         for i in 1..100u8 {
-            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i.into()));
+            leaves.insert(i as u64, UTXO::new(PublicKey::default(), i.into(), 0));
         }
         generate_merkle_tree_with_bad_root_and_test_membership(&pp, &pp, &leaves);
     }
@@ -778,11 +778,11 @@ mod test {
         let pp = poseidon_canonical_config::<Fr>();
         let mut old_leaves: BTreeMap<u64, UTXO<Projective>> = BTreeMap::new();
         for i in 1..10u8 {
-            old_leaves.insert(i as u64, UTXO::new(PublicKey::default(), i.into()));
+            old_leaves.insert(i as u64, UTXO::new(PublicKey::default(), i.into(), 0));
         }
         let mut new_leaves: BTreeMap<u64, UTXO<Projective>> = BTreeMap::new();
         for i in 1..20u8 {
-            new_leaves.insert(i as u64, UTXO::new(PublicKey::default(), (i * 3).into()));
+            new_leaves.insert(i as u64, UTXO::new(PublicKey::default(), (i * 3).into(), 0));
         }
         generate_merkle_tree_and_test_update(&pp, &pp, &old_leaves, &new_leaves);
     }

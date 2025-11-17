@@ -12,18 +12,15 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar, uint64::UInt64};
 
-use crate::{
-    datastructures::{
-        block::constraints::BlockVar,
-        keypair::constraints::PublicKeyVar,
-        noncemap::constraints::NonceVar,
-        shieldedtx::{
-            ShieldedTransaction, ShieldedTransactionConfig,
-            constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-        },
-        utxo::constraints::UTXOVar,
+use crate::datastructures::{
+    block::constraints::BlockVar,
+    keypair::constraints::PublicKeyVar,
+    noncemap::constraints::NonceVar,
+    shieldedtx::{
+        ShieldedTransaction, ShieldedTransactionConfig,
+        constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
     },
-    primitives::crh::CommittedUTXOCRH,
+    utxo::constraints::UTXOVar,
 };
 
 use super::{BlockCRH, NonceCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH};
@@ -130,28 +127,11 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
         let bool_as_fp: FpVar<C::BaseField> = input.is_dummy.clone().into();
         let pk_point = input.pk.key.to_constraint_field()?;
-        let mut input = Vec::from([input.amount.clone(), bool_as_fp]);
+        let mut input = Vec::from([input.amount.clone(), bool_as_fp, input.salt.clone()]);
         for p in pk_point {
             input.push(p);
         }
         CRHGadget::evaluate(parameters, &input)
-    }
-}
-
-pub struct CommittedUTXOVarCRH<F> {
-    _f: PhantomData<F>,
-}
-
-impl<F: PrimeField + Absorb> CRHSchemeGadget<CommittedUTXOCRH<F>, F> for CommittedUTXOVarCRH<F> {
-    type InputVar = (FpVar<F>, UInt64<F>);
-    type OutputVar = FpVar<F>;
-    type ParametersVar = CRHParametersVar<F>;
-
-    fn evaluate(
-        parameters: &Self::ParametersVar,
-        (cm, idx): &Self::InputVar,
-    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        CRHGadget::evaluate(parameters, &[cm.clone(), idx.to_fp()?])
     }
 }
 

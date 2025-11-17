@@ -171,35 +171,12 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for UTXOCRH<C> {
         let input = [
             C::BaseField::from(utxo.amount),
             C::BaseField::from(utxo.is_dummy),
+            C::BaseField::from(utxo.salt),
             x,
             y,
             iszero,
         ];
         CRH::evaluate(parameters, input)
-    }
-}
-
-pub struct CommittedUTXOCRH<F> {
-    _f: PhantomData<F>,
-}
-
-impl<F: PrimeField + Absorb> CRHScheme for CommittedUTXOCRH<F> {
-    type Input = (F, usize);
-    type Output = F;
-    type Parameters = PoseidonConfig<F>;
-
-    fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        // automatic generation of parameters are not implemented yet
-        // therefore, the developers must specify the parameters themselves
-        unimplemented!()
-    }
-
-    fn evaluate<T: Borrow<Self::Input>>(
-        parameters: &Self::Parameters,
-        input: T,
-    ) -> Result<Self::Output, Error> {
-        let (cm, idx) = input.borrow();
-        CRH::evaluate(parameters, [*cm, F::from(*idx as u64)])
     }
 }
 

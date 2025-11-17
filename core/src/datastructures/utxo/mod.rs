@@ -1,7 +1,4 @@
-use std::{
-    fmt::Debug,
-    marker::PhantomData,
-};
+use std::{fmt::Debug, marker::PhantomData};
 
 use ark_crypto_primitives::{
     crh::poseidon::TwoToOneCRH,
@@ -13,7 +10,7 @@ use ark_ff::{PrimeField, UniformRand};
 use ark_std::rand::Rng;
 
 use crate::primitives::{
-    crh::{CommittedUTXOCRH, UTXOCRH},
+    crh::UTXOCRH,
     sparsemt::{MerkleSparseTree, SparseConfig},
 };
 
@@ -25,6 +22,7 @@ pub mod constraints;
 pub struct UTXO<C: CurveGroup> {
     pub amount: u64,
     pub pk: PublicKey<C>,
+    pub salt: u128,
     pub is_dummy: bool,
 }
 
@@ -39,10 +37,11 @@ impl<C: CurveGroup> Debug for UTXO<C> {
 }
 
 impl<C: CurveGroup> UTXO<C> {
-    pub fn new(pk: PublicKey<C>, amount: u64) -> Self {
+    pub fn new(pk: PublicKey<C>, amount: u64, salt: u128) -> Self {
         UTXO {
             amount,
             pk,
+            salt,
             is_dummy: false,
         }
     }
@@ -51,6 +50,7 @@ impl<C: CurveGroup> UTXO<C> {
         UTXO {
             amount: 0,
             pk: PublicKey::default(),
+            salt: 0,
             is_dummy: true,
         }
     }
@@ -77,23 +77,5 @@ impl<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>> Config for UTXOTreeCo
 }
 
 impl<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>> SparseConfig for UTXOTreeConfig<C> {
-    const HEIGHT: u64 = 32;
-}
-
-#[derive(Clone, Debug)]
-pub struct CommittedUTXOTreeConfig<F> {
-    _f: PhantomData<F>,
-}
-
-impl<F: PrimeField + Absorb> Config for CommittedUTXOTreeConfig<F> {
-    type Leaf = (F, usize);
-    type LeafDigest = F;
-    type LeafInnerDigestConverter = IdentityDigestConverter<F>;
-    type InnerDigest = F;
-    type LeafHash = CommittedUTXOCRH<F>;
-    type TwoToOneHash = TwoToOneCRH<F>;
-}
-
-impl<F: PrimeField + Absorb> SparseConfig for CommittedUTXOTreeConfig<F> {
     const HEIGHT: u64 = 32;
 }
