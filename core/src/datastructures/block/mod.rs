@@ -1,3 +1,5 @@
+use crate::Nullifier;
+
 pub mod constraints;
 
 // contains the roots of utxo, transaction, signer, deposit and withdraw trees
@@ -5,7 +7,7 @@ pub mod constraints;
 pub struct Block<F> {
     pub tx_tree_root: F,
     pub signer_tree_root: F,
-    pub nullifiers: Vec<F>,
+    pub nullifiers: Vec<Nullifier<F>>,
     // the list of signer ids
     pub signers: Vec<Option<u32>>,
     pub height: usize,
