@@ -261,11 +261,6 @@ impl<
                 &utxo,
             )?;
 
-            println!(
-                "is_opened: {:?}, is_in_tree: {:?}",
-                is_opened.value(),
-                is_in_tree.clone().value()
-            );
             let is_valid_utxo = is_opened & is_in_tree;
             Boolean::Constant(true).conditional_enforce_equal(&is_valid_utxo, &is_sender)?;
 
@@ -292,7 +287,6 @@ mod tests {
     use core::{
         datastructures::{
             block::Block,
-            noncemap::Nonce,
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
             signerlist::{SignerTree, SignerTreeConfig},
             transparenttx::TransparentTransaction,
@@ -320,10 +314,13 @@ mod tests {
         merkle_tree::MerkleTree,
         sponge::poseidon::PoseidonConfig,
     };
-    use ark_ff::{AdditiveGroup, UniformRand};
+    use ark_ff::{AdditiveGroup, Field, UniformRand};
     use ark_grumpkin::constraints::GVar as ProjectiveVar;
     use ark_grumpkin::Projective;
-    use ark_r1cs_std::alloc::{AllocVar, AllocationMode};
+    use ark_r1cs_std::{
+        alloc::{AllocVar, AllocationMode},
+        GR1CSVar,
+    };
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::{rand::RngCore, test_rng};
 
@@ -381,6 +378,7 @@ mod tests {
         };
 
         let transactions = [
+            ShieldedTransaction::default(),
             sender_transaction.clone(),
             ShieldedTransaction::default(),
             ShieldedTransaction::default(),
@@ -412,7 +410,7 @@ mod tests {
         let sender_aux = UserAux {
             block,
             shielded_tx: sender_transaction,
-            tx_index: Fr::ZERO,
+            tx_index: Fr::ONE,
             shielded_tx_utxos: tx.outputs.to_vec(), // only outputs are processed
             shielded_tx_utxos_proofs,
             openings_mask: vec![true; 4],
@@ -434,8 +432,8 @@ mod tests {
         let pk_hash = PublicKeyCRH::evaluate(&pp, sender.keypair.pk).unwrap();
         let cur_acc = Fr::from(13);
         let cur_block_hash = Fr::from(42);
-        let cur_block_num = Fr::from(17);
-        let cur_tx_index = Fr::from(7);
+        let cur_block_num = Fr::from(0);
+        let cur_tx_index = Fr::from(0);
 
         let z_i = vec![
             cur_balance,
@@ -458,10 +456,17 @@ mod tests {
             1,
         >::new(pp_var.clone(), pp_var.clone());
 
-        // FIXME not done yet
         let new_z_i_var = user_circuit
             .update_balance(cs.clone(), z_i_var, sender_aux_var)
             .unwrap();
         assert!(cs.is_satisfied().unwrap());
+        assert_eq!(new_z_i_var[0].value().unwrap(), cur_balance - Fr::from(10)); // balance should
+                                                                                 // decrease by 10
+        assert_eq!(new_z_i_var[1].value().unwrap(), cur_nonce + Fr::ONE); // nonce increased by 1
+        assert_eq!(new_z_i_var[2].value().unwrap(), pk_hash); // pk hash is invariant
+        assert_ne!(new_z_i_var[3].value().unwrap(), cur_acc); // accumulator changed
+        assert_ne!(new_z_i_var[4].value().unwrap(), cur_block_hash); // block hash is new
+        assert_eq!(new_z_i_var[5].value().unwrap(), Fr::ONE); // block num is changed
+        assert!(new_z_i_var[6].value().unwrap() > cur_tx_index); // greater tx index
     }
 }
