@@ -5,41 +5,39 @@ use crate::datastructures::transparenttx::constraints::TransparentTransactionVar
 use ark_crypto_primitives::{
     Error,
     crh::{
-        CRHScheme, CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
+        CRHScheme, CRHSchemeGadget, TwoToOneCRHSchemeGadget,
         poseidon::{
-            CRH, TwoToOneCRH,
-            constraints::{CRHGadget, CRHParametersVar, TwoToOneCRHGadget},
+            CRH,
+            constraints::{CRHGadget, CRHParametersVar},
         },
     },
     merkle_tree::{
-        Config,
+        Config, Path,
         constraints::{ConfigGadget, PathVar},
     },
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ec::CurveGroup;
-use ark_ff::{PrimeField, UniformRand};
+use ark_ff::PrimeField;
 use ark_r1cs_std::{
-    eq::EqGadget, fields::fp::FpVar, groups::CurveVar, prelude::Boolean, uint64::UInt64,
+    alloc::AllocVar, eq::EqGadget, fields::fp::FpVar, groups::CurveVar, prelude::Boolean,
+    uint64::UInt64,
 };
 use ark_relations::gr1cs::SynthesisError;
-use ark_std::rand::Rng;
-use datastructures::shieldedtx::{
-    ShieldedTransaction, ShieldedTransactionConfig,
-    constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
+use datastructures::{
+    block::{Block, constraints::BlockVar},
+    blocktree::{BlockTreeConfig, constraints::BlockTreeConfigGadget},
+    shieldedtx::{
+        ShieldedTransaction, ShieldedTransactionConfig,
+        constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
+    },
+    signerlist::constraints::SignerTreeConfigGadget,
+    txtree::{TransactionTreeConfig, constraints::TransactionTreeConfigGadget},
+    utxo::constraints::UTXOVar,
 };
+use primitives::sparsemt::{MerkleSparseTreePath, constraints::MerkleSparseTreePathVar};
 
-use crate::{
-    datastructures::{
-        keypair::constraints::PublicKeyVar,
-        signerlist::{SignerTreeConfig, constraints::SignerTreeConfigGadget},
-        utxo::{UTXO, constraints::UTXOVar},
-    },
-    primitives::{
-        crh::{UTXOCRH, constraints::UTXOVarCRH},
-        sparsemt::constraints::MerkleSparseTreePathVar,
-    },
-};
+use crate::datastructures::{signerlist::SignerTreeConfig, utxo::UTXO};
 
 const TX_TREE_HEIGHT: u64 = 13;
 const SIGNER_TREE_HEIGHT: u64 = TX_TREE_HEIGHT;
@@ -87,26 +85,148 @@ impl<F: PrimeField + Absorb> NullifierVar<F> {
     }
 }
 
-fn commit_utxo<C: CurveGroup<BaseField: PrimeField + Absorb>>(
-    cfg: &PoseidonConfig<C::BaseField>,
-    utxo: &UTXO<C>,
-    mut rng: impl Rng,
-) -> Result<(C::BaseField, C::BaseField), Error> {
-    let r = C::BaseField::rand(&mut rng);
-    let cm = TwoToOneCRH::evaluate(cfg, UTXOCRH::evaluate(cfg, utxo)?, r)?;
-
-    Ok((cm, r))
+impl<F: PrimeField> AllocVar<Nullifier<F>, F> for NullifierVar<F> {
+    fn new_variable<T: std::borrow::Borrow<Nullifier<F>>>(
+        cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
+        f: impl FnOnce() -> Result<T, SynthesisError>,
+        mode: ark_r1cs_std::prelude::AllocationMode,
+    ) -> Result<Self, SynthesisError> {
+        let cs = cs.into();
+        let res = f()?;
+        let nullifier = res.borrow();
+        Ok(NullifierVar {
+            value: FpVar::new_variable(cs, || Ok(nullifier.value), mode)?,
+        })
+    }
 }
 
-fn commit_utxo_var<
+// each input utxo requires a proof, attesting to its validity and nullifier
+// valid utxo = included in shielded tx, within a tx tree which was signed at a certain block
+// included within the block tree
+pub struct UTXOProof<C: CurveGroup<BaseField: PrimeField + Absorb>> {
+    block: Block<C::BaseField>,
+    tx: ShieldedTransaction<C>,
+    utxo: UTXO<C>,
+    utxo_inclusion_proof: Path<ShieldedTransactionConfig<C>>,
+    signer_tree_root: <SignerTreeConfig<C> as Config>::InnerDigest,
+    signer_inclusion_proof: MerkleSparseTreePath<SignerTreeConfig<C>>,
+    tx_tree_root: <TransactionTreeConfig<C> as Config>::InnerDigest,
+    tx_inclusion_proof: MerkleSparseTreePath<TransactionTreeConfig<C>>,
+    tx_index: C::BaseField,
+    block_tree_root: <BlockTreeConfig<C> as Config>::InnerDigest,
+    block_inclusion_proof: MerkleSparseTreePath<BlockTreeConfig<C>>,
+    nullifier: Nullifier<C::BaseField>,
+}
+
+pub struct UTXOProofVar<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,
->(
-    cfg: &CRHParametersVar<C::BaseField>,
-    utxo: &UTXOVar<C, CVar>,
-    r: &FpVar<C::BaseField>,
-) -> Result<FpVar<C::BaseField>, SynthesisError> {
-    TwoToOneCRHGadget::evaluate(cfg, &UTXOVarCRH::evaluate(cfg, utxo)?, r)
+> {
+    block: BlockVar<C::BaseField>,
+    tx: ShieldedTransactionVar<C, CVar>,
+    utxo: UTXOVar<C, CVar>,
+    utxo_inclusion_proof: PathVar<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+        ShieldedTransactionConfigGadget<C, CVar>,
+    >,
+    signer_tree_root: <SignerTreeConfigGadget<C, CVar> as ConfigGadget<
+        SignerTreeConfig<C>,
+        C::BaseField,
+    >>::InnerDigest,
+    signer_inclusion_proof:
+        MerkleSparseTreePathVar<SignerTreeConfig<C>, C::BaseField, SignerTreeConfigGadget<C, CVar>>,
+    tx_tree_root: <TransactionTreeConfigGadget<C, CVar> as ConfigGadget<
+        TransactionTreeConfig<C>,
+        C::BaseField,
+    >>::InnerDigest,
+    tx_inclusion_proof: MerkleSparseTreePathVar<
+        TransactionTreeConfig<C>,
+        C::BaseField,
+        TransactionTreeConfigGadget<C, CVar>,
+    >,
+    tx_index: FpVar<C::BaseField>,
+    block_tree_root: <BlockTreeConfigGadget<C, CVar> as ConfigGadget<
+        BlockTreeConfig<C>,
+        C::BaseField,
+    >>::InnerDigest,
+    block_inclusion_proof:
+        MerkleSparseTreePathVar<BlockTreeConfig<C>, C::BaseField, BlockTreeConfigGadget<C, CVar>>,
+    nullifier: NullifierVar<C::BaseField>,
+}
+
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
+    AllocVar<UTXOProof<C>, C::BaseField> for UTXOProofVar<C, CVar>
+{
+    fn new_variable<T: std::borrow::Borrow<UTXOProof<C>>>(
+        cs: impl Into<ark_relations::gr1cs::Namespace<C::BaseField>>,
+        f: impl FnOnce() -> Result<T, SynthesisError>,
+        mode: ark_r1cs_std::prelude::AllocationMode,
+    ) -> Result<Self, SynthesisError> {
+        let cs = cs.into();
+        let res = f()?;
+        let utxo_proof = res.borrow();
+        let block = BlockVar::new_variable(cs.clone(), || Ok(utxo_proof.block.clone()), mode)?;
+        let tx =
+            ShieldedTransactionVar::new_variable(cs.clone(), || Ok(utxo_proof.tx.clone()), mode)?;
+        let utxo = UTXOVar::new_variable(cs.clone(), || Ok(utxo_proof.utxo.clone()), mode)?;
+        let utxo_inclusion_proof = PathVar::new_variable(
+            cs.clone(),
+            || Ok(utxo_proof.utxo_inclusion_proof.clone()),
+            mode,
+        )?;
+        let signer_tree_root = <SignerTreeConfigGadget<C, CVar> as ConfigGadget<
+            SignerTreeConfig<C>,
+            C::BaseField,
+        >>::InnerDigest::new_variable(
+            cs.clone(), || Ok(utxo_proof.signer_tree_root), mode
+        )?;
+        let signer_inclusion_proof = MerkleSparseTreePathVar::new_variable(
+            cs.clone(),
+            || Ok(utxo_proof.signer_inclusion_proof.clone()),
+            mode,
+        )?;
+        let tx_tree_root = <TransactionTreeConfigGadget<C, CVar> as ConfigGadget<
+            TransactionTreeConfig<C>,
+            C::BaseField,
+        >>::InnerDigest::new_variable(
+            cs.clone(), || Ok(utxo_proof.tx_tree_root), mode
+        )?;
+        let tx_inclusion_proof = MerkleSparseTreePathVar::new_variable(
+            cs.clone(),
+            || Ok(utxo_proof.tx_inclusion_proof.clone()),
+            mode,
+        )?;
+        let tx_index = FpVar::new_variable(cs.clone(), || Ok(utxo_proof.tx_index), mode)?;
+        let block_tree_root = <BlockTreeConfigGadget<C, CVar> as ConfigGadget<
+            BlockTreeConfig<C>,
+            C::BaseField,
+        >>::InnerDigest::new_variable(
+            cs.clone(), || Ok(utxo_proof.block_tree_root), mode
+        )?;
+        let block_inclusion_proof = MerkleSparseTreePathVar::new_variable(
+            cs.clone(),
+            || Ok(utxo_proof.block_inclusion_proof.clone()),
+            mode,
+        )?;
+        let nullifier =
+            NullifierVar::new_variable(cs.clone(), || Ok(utxo_proof.nullifier.clone()), mode)?;
+
+        Ok(UTXOProofVar {
+            block,
+            tx,
+            utxo,
+            utxo_inclusion_proof,
+            signer_tree_root,
+            signer_inclusion_proof,
+            tx_tree_root,
+            tx_inclusion_proof,
+            tx_index,
+            block_tree_root,
+            block_inclusion_proof,
+            nullifier,
+        })
+    }
 }
 
 // NOTE: here is how I would think about it? (in this setup we don't need the shielded tx)
@@ -151,46 +271,19 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::Leaf],
-    // proving the shielded tx is correctly built
+    // proving the shielded tx is correctly built (all leaves are correct)
     shielded_tx_proof: &[PathVar<
         ShieldedTransactionConfig<C>,
         C::BaseField,
         ShieldedTransactionConfigGadget<C, CVar>,
     >],
-    // nullifiers for shielded tx inputs
-    nullifiers: &[NullifierVar<C::BaseField>],
-    utxo_tree_root: &FpVar<C::BaseField>,
-    signer_tree_root: &FpVar<C::BaseField>,
-    transaction_indexes: &[UInt64<C::BaseField>],
-    utxo_indexes: &[UInt64<C::BaseField>],
-    signer_indexes: &[UInt64<C::BaseField>],
-    //utxo_paths: &[MerkleSparseTreePathVar<
-    //    CommittedUTXOTreeConfig<C::BaseField>,
-    //    C::BaseField,
-    //    CommittedUTXOTreeConfigGadget<C::BaseField>,
-    //>],
-    signer_paths: &[MerkleSparseTreePathVar<
-        SignerTreeConfig<C>,
-        C::BaseField,
-        SignerTreeConfigGadget<C, CVar>,
-    >],
-    sender_pks: &[PublicKeyVar<C, CVar>],
-
-    block_tree_root: &FpVar<C::BaseField>,
-    block_index: &UInt64<C::BaseField>,
 ) -> Result<(), SynthesisError> {
     // TODO: filter dummy UTXOs
+
+    // compute utxo indexes from their merkle paths
+    // let claimed_f = Boolean::le_bits_to_fp(&bits)?;
+
     // TODO: add transaction indexes to nullifier computation
-    for (((nullifier, utxo), tx_idx), utxo_idx) in nullifiers
-        .iter()
-        .zip(shielded_tx_inputs.iter())
-        .zip(transaction_indexes)
-        .zip(utxo_indexes)
-    {
-        NullifierVar::new(cfg, sk, tx_idx, utxo_idx, block_index)?
-            .value
-            .enforce_equal(&nullifier.value)?;
-    }
     // TODO: check sk and pk match
 
     // checks that shielded tx tree is correctly built
@@ -230,34 +323,6 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
                 .map(|i| &i.amount)
                 .sum::<FpVar<C::BaseField>>(),
         )?;
-
-    for (((((utxo, r), utxo_idx), signer_idx), signer_path), sender_pk) in plain_tx
-        .inputs
-        .iter()
-        .zip(shielded_tx_inputs)
-        .zip(utxo_indexes)
-        .zip(signer_indexes)
-        //        .zip(utxo_paths)
-        .zip(signer_paths)
-        .zip(sender_pks)
-    {
-        // let cm = commit_utxo_var(cfg, utxo, r)?;
-        //utxo_path.check_membership_with_index(
-        //    cfg,
-        //    cfg,
-        //    utxo_tree_root,
-        //    &(cm, signer_idx.clone()),
-        //    utxo_idx,
-        //)?;
-
-        signer_path.check_membership_with_index(
-            cfg,
-            cfg,
-            signer_tree_root,
-            &sender_pk,
-            signer_idx,
-        )?;
-    }
 
     todo!();
     Ok(())
