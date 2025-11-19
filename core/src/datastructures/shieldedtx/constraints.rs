@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
     crh::poseidon::constraints::TwoToOneCRHGadget,
-    merkle_tree::{Config, IdentityDigestConverter, constraints::ConfigGadget},
+    merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
@@ -11,10 +11,10 @@ use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, groups::CurveVar};
 
 use crate::{
     datastructures::{keypair::constraints::PublicKeyVar, utxo::constraints::UTXOVar},
-    primitives::{crh::constraints::UTXOVarCRH, sparsemt::constraints::SparseConfigGadget},
+    primitives::crh::constraints::UTXOVarCRH,
 };
 
-use super::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransaction, ShieldedTransactionConfig};
+use super::{ShieldedTransaction, ShieldedTransactionConfig};
 
 #[derive(Clone, Debug)]
 pub struct ShieldedTransactionVar<
@@ -63,11 +63,4 @@ where
     type InnerDigest = FpVar<C::BaseField>;
     type LeafHash = UTXOVarCRH<C, CVar>;
     type TwoToOneHash = TwoToOneCRHGadget<C::BaseField>;
-}
-
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    SparseConfigGadget<ShieldedTransactionConfig<C>, C::BaseField>
-    for ShieldedTransactionConfigGadget<C, CVar>
-{
-    const HEIGHT: u64 = SHIELDED_TX_TREE_HEIGHT;
 }
