@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::{
+    SIGNER_TREE_HEIGHT,
     primitives::{
         crh::PublicKeyCRH,
         sparsemt::{MerkleSparseTree, SparseConfig},
     },
-    SIGNER_TREE_HEIGHT,
 };
 use ark_crypto_primitives::{
     crh::poseidon::TwoToOneCRH,
