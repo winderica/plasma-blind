@@ -5,25 +5,21 @@ use ark_crypto_primitives::{
         CRHSchemeGadget,
         poseidon::constraints::{CRHGadget, CRHParametersVar},
     },
-    merkle_tree::constraints::ConfigGadget,
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar, uint64::UInt64};
+use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
 use crate::datastructures::{
-    block::constraints::BlockVar,
+    block::constraints::{BlockHashVar, BlockVar},
     keypair::constraints::PublicKeyVar,
     noncemap::constraints::NonceVar,
-    shieldedtx::{
-        ShieldedTransaction, ShieldedTransactionConfig,
-        constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-    },
+    shieldedtx::constraints::ShieldedTransactionVar,
     utxo::constraints::UTXOVar,
 };
 
-use super::{BlockCRH, NonceCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH};
+use super::{BlockCRH, BlockTreeCRH, NonceCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH};
 
 pub struct ShieldedTransactionVarCRH<C, CVar> {
     _c: PhantomData<C>,
@@ -156,5 +152,22 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockCRH<F>, F> for BlockVarCRH<F> 
                 input.height.clone(),
             ],
         )
+    }
+}
+
+pub struct BlockTreeVarCRH<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockTreeCRH<F>, F> for BlockTreeVarCRH<F> {
+    type InputVar = BlockHashVar<F>;
+    type OutputVar = FpVar<F>;
+    type ParametersVar = ();
+
+    fn evaluate(
+        _parameters: &Self::ParametersVar,
+        input: &Self::InputVar,
+    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
+        Ok(input.clone())
     }
 }

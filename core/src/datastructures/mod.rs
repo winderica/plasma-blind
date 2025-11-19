@@ -1,4 +1,5 @@
 pub mod block;
+pub mod blocktree;
 pub mod deposits;
 pub mod keypair;
 pub mod noncemap;

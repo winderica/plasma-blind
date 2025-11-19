@@ -5,6 +5,8 @@ use ark_relations::gr1cs::SynthesisError;
 
 use super::Block;
 
+pub type BlockHashVar<F> = FpVar<F>;
+
 // I'm not sure we need the nullifier tree in the block?
 #[derive(Clone, Debug)]
 pub struct BlockVar<F: PrimeField> {

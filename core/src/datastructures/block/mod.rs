@@ -2,6 +2,8 @@ use crate::Nullifier;
 
 pub mod constraints;
 
+pub type BlockHash<F> = F;
+
 // contains the roots of utxo, transaction, signer, deposit and withdraw trees
 #[derive(Clone, Default, Debug)]
 pub struct Block<F> {

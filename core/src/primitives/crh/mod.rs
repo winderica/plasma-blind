@@ -14,10 +14,10 @@ use ark_ff::{Field, PrimeField};
 use ark_std::rand::Rng;
 
 use crate::datastructures::{
-    block::Block,
+    block::{Block, BlockHash},
     keypair::PublicKey,
     noncemap::Nonce,
-    shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
+    shieldedtx::ShieldedTransaction,
     utxo::UTXO,
 };
 
@@ -204,6 +204,29 @@ impl<F: PrimeField + Absorb> CRHScheme for BlockCRH<F> {
             F::from(block.height as u64),
         ];
         CRH::evaluate(parameters, input)
+    }
+}
+
+pub struct BlockTreeCRH<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+// identity hash
+impl<F: PrimeField + Absorb> CRHScheme for BlockTreeCRH<F> {
+    type Input = BlockHash<F>;
+    type Output = F;
+    type Parameters = ();
+
+    fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
+        todo!()
+    }
+
+    fn evaluate<T: Borrow<Self::Input>>(
+        _parameters: &Self::Parameters,
+        input: T,
+    ) -> Result<Self::Output, Error> {
+        let block_hash = input.borrow();
+        Ok(*block_hash)
     }
 }
 
