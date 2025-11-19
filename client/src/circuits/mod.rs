@@ -314,7 +314,7 @@ mod tests {
         merkle_tree::MerkleTree,
         sponge::poseidon::PoseidonConfig,
     };
-    use ark_ff::{AdditiveGroup, Field, UniformRand};
+    use ark_ff::{Field, UniformRand};
     use ark_grumpkin::constraints::GVar as ProjectiveVar;
     use ark_grumpkin::Projective;
     use ark_r1cs_std::{
