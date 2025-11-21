@@ -15,10 +15,8 @@ use ark_r1cs_std::{
     eq::EqGadget,
     fields::fp::FpVar,
     prelude::{Boolean, ToBitsGadget},
-    select::CondSelectGadget,
-    uint64::UInt64,
 };
-use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
+use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use super::{MerkleSparseTreePath, MerkleSparseTreeTwoPaths, SparseConfig};
 
@@ -380,7 +378,7 @@ mod test {
     use ark_bn254::Fr;
     use ark_crypto_primitives::crh::{CRHScheme, poseidon::constraints::CRHParametersVar};
     use ark_grumpkin::{Projective, constraints::GVar};
-    use ark_relations::gr1cs::ConstraintSystem;
+    use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef};
 
     use super::*;
     use crate::{

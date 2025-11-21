@@ -13,7 +13,10 @@ use core::{
     primitives::{
         accumulator::constraints::Accumulator,
         crh::constraints::{BlockVarCRH, PublicKeyVarCRH},
-        sparsemt::constraints::MerkleSparseTreePathVar,
+        sparsemt::{
+            constraints::{MerkleSparseTreePathVar, SparseConfigGadget},
+            SparseConfig,
+        },
     },
 };
 use std::borrow::Borrow;
@@ -21,8 +24,11 @@ use std::{cmp::Ordering, marker::PhantomData};
 
 use ark_crypto_primitives::{
     crh::{
-        poseidon::constraints::CRHParametersVar, CRHSchemeGadget, TwoToOneCRHScheme,
-        TwoToOneCRHSchemeGadget,
+        poseidon::{
+            constraints::{CRHParametersVar, TwoToOneCRHGadget},
+            TwoToOneCRH,
+        },
+        CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
     },
     merkle_tree::constraints::PathVar,
     sponge::Absorb,
@@ -103,8 +109,26 @@ impl<
 pub struct UserAuxVar<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,
+    TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
+    TCG: SparseConfigGadget<
+        TC,
+        C::BaseField,
+        InnerDigest = FpVar<C::BaseField>,
+        TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+        LeafDigest = FpVar<C::BaseField>,
+        Leaf = ShieldedTransactionVar<C, CVar>,
+    >,
+    SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
+    SCG: SparseConfigGadget<
+        SC,
+        C::BaseField,
+        InnerDigest = FpVar<C::BaseField>,
+        TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+        LeafDigest = FpVar<C::BaseField>,
+        Leaf = PublicKeyVar<C, CVar>,
+    >,
 > {
-    pub block: BlockVar<C::BaseField>,
+    pub block: BlockVar<C, TC, TCG, SC, SCG>,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
     pub shielded_tx: ShieldedTransactionVar<C, CVar>,
     // index of transaction within transaction tree
@@ -122,8 +146,28 @@ pub struct UserAuxVar<
     pub pk: PublicKeyVar<C, CVar>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    AllocVar<UserAux<C>, C::BaseField> for UserAuxVar<C, CVar>
+impl<
+        C: CurveGroup<BaseField: PrimeField + Absorb>,
+        CVar: CurveVar<C, C::BaseField>,
+        TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
+        TCG: SparseConfigGadget<
+            TC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = ShieldedTransactionVar<C, CVar>,
+        >,
+        SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
+        SCG: SparseConfigGadget<
+            SC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = PublicKeyVar<C, CVar>,
+        >,
+    > AllocVar<UserAux<C>, C::BaseField> for UserAuxVar<C, CVar, TC, TCG, SC, SCG>
 {
     fn new_variable<T: Borrow<UserAux<C>>>(
         cs: impl Into<Namespace<C::BaseField>>,
@@ -186,11 +230,30 @@ impl<
         const N_TX_PER_FOLD_STEP: usize,
     > UserCircuit<C, CVar, H, T, A, N_TX_PER_FOLD_STEP>
 {
-    pub fn update_balance(
+    pub fn update_balance<
+        TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
+        TCG: SparseConfigGadget<
+            TC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = ShieldedTransactionVar<C, CVar>,
+        >,
+        SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
+        SCG: SparseConfigGadget<
+            SC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = PublicKeyVar<C, CVar>,
+        >,
+    >(
         &self,
         cs: ConstraintSystemRef<C::BaseField>,
         z_i: Vec<FpVar<C::BaseField>>,
-        aux: UserAuxVar<C, CVar>,
+        aux: UserAuxVar<C, CVar, TC, TCG, SC, SCG>,
     ) -> Result<Vec<FpVar<C::BaseField>>, SynthesisError> {
         let (balance, nonce, pk_hash, acc, block_hash, block_number, processed_tx_index) = (
             z_i[0].clone(),
@@ -288,9 +351,11 @@ mod tests {
         datastructures::{
             block::Block,
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::{SignerTree, SignerTreeConfig},
+            signerlist::{constraints::SignerTreeConfigGadget, SignerTree, SignerTreeConfig},
             transparenttx::TransparentTransaction,
-            txtree::TransactionTree,
+            txtree::{
+                constraints::TransactionTreeConfigGadget, TransactionTree, TransactionTreeConfig,
+            },
             user::User,
             utxo::UTXO,
         },
@@ -420,12 +485,16 @@ mod tests {
         };
 
         let cs = ConstraintSystem::new_ref();
-        let sender_aux_var = UserAuxVar::<Projective, ProjectiveVar>::new_variable(
-            cs.clone(),
-            || Ok(sender_aux),
-            AllocationMode::Witness,
-        )
-        .unwrap();
+        let sender_aux_var =
+            UserAuxVar::<
+                Projective,
+                ProjectiveVar,
+                TransactionTreeConfig<_>,
+                TransactionTreeConfigGadget<_, _>,
+                SignerTreeConfig<_>,
+                SignerTreeConfigGadget<_, _>,
+            >::new_variable(cs.clone(), || Ok(sender_aux), AllocationMode::Witness)
+            .unwrap();
 
         let cur_balance = Fr::from(47);
         let cur_nonce = Fr::from(11);

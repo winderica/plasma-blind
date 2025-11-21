@@ -5,6 +5,7 @@ use ark_crypto_primitives::{
         CRHSchemeGadget,
         poseidon::constraints::{CRHGadget, CRHParametersVar},
     },
+    merkle_tree::{Config, constraints::ConfigGadget},
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
@@ -131,14 +132,31 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     }
 }
 
-pub struct BlockVarCRH<F: PrimeField> {
-    _f: PhantomData<F>,
+pub struct BlockVarCRH<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    TC: Config, // transaction tree config
+    TCG: ConfigGadget<TC, C::BaseField>,
+    SC: Config,
+    SCG: ConfigGadget<SC, C::BaseField>,
+> {
+    _c: PhantomData<C>,
+    _tc: PhantomData<TC>,
+    _tcg: PhantomData<TCG>,
+    _sc: PhantomData<SC>,
+    _scg: PhantomData<SCG>,
 }
 
-impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockCRH<F>, F> for BlockVarCRH<F> {
-    type InputVar = BlockVar<F>;
-    type OutputVar = FpVar<F>;
-    type ParametersVar = CRHParametersVar<F>;
+impl<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    TC: Config, // transaction tree config
+    TCG: ConfigGadget<TC, C::BaseField, InnerDigest = FpVar<C::BaseField>>,
+    SC: Config,
+    SCG: ConfigGadget<SC, C::BaseField, InnerDigest = FpVar<C::BaseField>>,
+> CRHSchemeGadget<BlockCRH<C::BaseField>, C::BaseField> for BlockVarCRH<C, TC, TCG, SC, SCG>
+{
+    type InputVar = BlockVar<C, TC, TCG, SC, SCG>;
+    type OutputVar = FpVar<C::BaseField>;
+    type ParametersVar = CRHParametersVar<C::BaseField>;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
