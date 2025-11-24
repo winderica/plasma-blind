@@ -6,13 +6,9 @@ use ark_crypto_primitives::{
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
-use ark_ff::{PrimeField, UniformRand};
-use ark_std::rand::Rng;
+use ark_ff::PrimeField;
 
-use crate::primitives::{
-    crh::UTXOCRH,
-    sparsemt::{MerkleSparseTree, SparseConfig},
-};
+use crate::primitives::{crh::UTXOCRH, sparsemt::SparseConfig};
 
 use super::keypair::PublicKey;
 

@@ -3,6 +3,7 @@ use ark_ec::CurveGroup;
 use ark_ff::{BigInteger, PrimeField};
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::alloc::AllocationMode;
+use ark_r1cs_std::eq::EqGadget;
 use ark_r1cs_std::select::CondSelectGadget;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar, prelude::Boolean};
 use ark_relations::gr1cs::Namespace;
@@ -21,6 +22,14 @@ pub struct PublicKeyVar<
 > {
     pub key: CVar,
     pub _f: PhantomData<C>,
+}
+
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
+    EqGadget<C::BaseField> for PublicKeyVar<C, CVar>
+{
+    fn is_eq(&self, other: &Self) -> Result<Boolean<C::BaseField>, SynthesisError> {
+        Ok(self.key.is_eq(&other.key)?)
+    }
 }
 
 impl<C: CurveGroup<BaseField: Absorb + PrimeField>, CVar: CurveVar<C, C::BaseField>>

@@ -8,13 +8,13 @@ use ark_crypto_primitives::{
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 
-use crate::primitives::crh::UTXOCRH;
+use crate::primitives::{crh::UTXOCRH, sparsemt::SparseConfig};
 
 pub mod constraints;
 
 use super::{keypair::PublicKey, utxo::UTXO};
 
-const SHIELDED_TX_TREE_HEIGHT: u64 = 3; // 4 inputs (resolving to 4 nullifiers) + 4 outputs
+pub const SHIELDED_TX_TREE_HEIGHT: u64 = 3; // 4 inputs (resolving to 4 nullifiers) + 4 outputs
 
 // what's sent to the aggregator
 #[derive(Default, Clone, Debug)]
@@ -49,4 +49,8 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> Config for ShieldedTransacti
     type InnerDigest = C::BaseField;
     type LeafHash = UTXOCRH<C>;
     type TwoToOneHash = TwoToOneCRH<C::BaseField>;
+}
+
+impl<C: CurveGroup<BaseField: Absorb + PrimeField>> SparseConfig for ShieldedTransactionConfig<C> {
+    const HEIGHT: u64 = SHIELDED_TX_TREE_HEIGHT;
 }

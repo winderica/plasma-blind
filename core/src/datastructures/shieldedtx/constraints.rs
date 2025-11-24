@@ -11,10 +11,10 @@ use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, groups::CurveVar};
 
 use crate::{
     datastructures::{keypair::constraints::PublicKeyVar, utxo::constraints::UTXOVar},
-    primitives::crh::constraints::UTXOVarCRH,
+    primitives::{crh::constraints::UTXOVarCRH, sparsemt::constraints::SparseConfigGadget},
 };
 
-use super::{ShieldedTransaction, ShieldedTransactionConfig};
+use super::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransaction, ShieldedTransactionConfig};
 
 #[derive(Clone, Debug)]
 pub struct ShieldedTransactionVar<
@@ -63,4 +63,11 @@ where
     type InnerDigest = FpVar<C::BaseField>;
     type LeafHash = UTXOVarCRH<C, CVar>;
     type TwoToOneHash = TwoToOneCRHGadget<C::BaseField>;
+}
+
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
+    SparseConfigGadget<ShieldedTransactionConfig<C>, C::BaseField>
+    for ShieldedTransactionConfigGadget<C, CVar>
+{
+    const HEIGHT: u64 = SHIELDED_TX_TREE_HEIGHT;
 }

@@ -11,23 +11,19 @@ use ark_crypto_primitives::{
             constraints::{CRHGadget, CRHParametersVar, TwoToOneCRHGadget},
         },
     },
-    merkle_tree::{
-        Config, Path,
-        constraints::{ConfigGadget, PathVar},
-    },
+    merkle_tree::{Config, constraints::ConfigGadget},
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ec::CurveGroup;
+use ark_ff::Field;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     eq::EqGadget,
     fields::fp::FpVar,
     groups::CurveVar,
-    prelude::Boolean,
-    uint64::UInt64,
 };
-use ark_relations::gr1cs::SynthesisError;
+use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 use datastructures::{
     block::{Block, constraints::BlockVar},
     blocktree::{BlockTreeConfig, constraints::BlockTreeConfigGadget},
@@ -36,21 +32,20 @@ use datastructures::{
         ShieldedTransaction, ShieldedTransactionConfig,
         constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
     },
-    signerlist::constraints::SignerTreeConfigGadget,
-    txtree::{TransactionTreeConfig, constraints::TransactionTreeConfigGadget},
     utxo::constraints::UTXOVar,
 };
-use primitives::sparsemt::{
-    MerkleSparseTreePath, SparseConfig,
-    constraints::{MerkleSparseTreePathVar, SparseConfigGadget},
+use primitives::{
+    crh::{BlockCRH, constraints::BlockVarCRH},
+    sparsemt::{
+        MerkleSparseTreePath, SparseConfig,
+        constraints::{MerkleSparseTreePathVar, SparseConfigGadget},
+    },
 };
 
-use crate::datastructures::{signerlist::SignerTreeConfig, utxo::UTXO};
+use crate::datastructures::utxo::UTXO;
 
 const TX_TREE_HEIGHT: u64 = 13;
 const SIGNER_TREE_HEIGHT: u64 = TX_TREE_HEIGHT;
-
-type UserId = usize;
 
 #[derive(Clone, Debug)]
 pub struct Nullifier<F> {
@@ -61,14 +56,19 @@ impl<F: PrimeField + Absorb> Nullifier<F> {
     pub fn new(
         cfg: &PoseidonConfig<F>,
         sk: F,
-        i: usize,
-        j: usize,
-        t: usize,
+        utxo_idx: usize,
+        tx_idx: usize,
+        block_height: usize,
     ) -> Result<Self, Error> {
         Ok(Self {
             value: CRH::evaluate(
                 cfg,
-                [sk, F::from(i as u64), F::from(j as u64), F::from(t as u64)],
+                [
+                    sk,
+                    F::from(utxo_idx as u64),
+                    F::from(tx_idx as u64),
+                    F::from(block_height as u64),
+                ],
             )?,
         })
     }
@@ -83,12 +83,12 @@ impl<F: PrimeField + Absorb> NullifierVar<F> {
     fn new(
         cfg: &CRHParametersVar<F>,
         sk: &FpVar<F>,
-        i: &UInt64<F>,
-        j: &UInt64<F>,
-        t: &UInt64<F>,
+        utxo_idx: FpVar<F>,
+        tx_idx: FpVar<F>,
+        block_height: FpVar<F>,
     ) -> Result<Self, SynthesisError> {
         Ok(Self {
-            value: CRHGadget::evaluate(cfg, &[sk.clone(), i.to_fp()?, j.to_fp()?, t.to_fp()?])?,
+            value: CRHGadget::evaluate(cfg, &[sk.clone(), utxo_idx, tx_idx, block_height])?,
         })
     }
 }
@@ -119,7 +119,8 @@ pub struct UTXOProof<
     block: Block<C::BaseField>,
     tx: ShieldedTransaction<C>,
     utxo: UTXO<C>,
-    utxo_inclusion_proof: Path<ShieldedTransactionConfig<C>>,
+    utxo_index: C::BaseField,
+    utxo_inclusion_proof: MerkleSparseTreePath<ShieldedTransactionConfig<C>>,
     signer_inclusion_proof: MerkleSparseTreePath<SC>,
     tx_inclusion_proof: MerkleSparseTreePath<TC>,
     tx_index: C::BaseField,
@@ -139,7 +140,8 @@ pub struct UTXOProofVar<
     block: BlockVar<C, TC, TCG, SC, SCG>,
     tx: <TCG as ConfigGadget<TC, C::BaseField>>::Leaf,
     utxo: UTXOVar<C, CVar>,
-    utxo_inclusion_proof: PathVar<
+    utxo_index: FpVar<C::BaseField>,
+    utxo_inclusion_proof: MerkleSparseTreePathVar<
         ShieldedTransactionConfig<C>,
         C::BaseField,
         ShieldedTransactionConfigGadget<C, CVar>,
@@ -185,7 +187,9 @@ impl<
             mode,
         )?;
         let utxo = UTXOVar::new_variable(cs.clone(), || Ok(utxo_proof.utxo.clone()), mode)?;
-        let utxo_inclusion_proof = PathVar::new_variable(
+        let utxo_index =
+            FpVar::new_variable(cs.clone(), || Ok(utxo_proof.utxo_index.clone()), mode)?;
+        let utxo_inclusion_proof = MerkleSparseTreePathVar::new_variable(
             cs.clone(),
             || Ok(utxo_proof.utxo_inclusion_proof.clone()),
             mode,
@@ -226,6 +230,7 @@ impl<
             block,
             tx,
             utxo,
+            utxo_index,
             utxo_inclusion_proof,
             signer_inclusion_proof,
             tx_inclusion_proof,
@@ -266,9 +271,14 @@ impl<
     // 3. the transaction tree T has been signed by the sender s
     // 4. the transaction tree exists in a block B
     // 5. the block B exists in a block tree T^{block} with root r^{block}
-    // 6. nullifiers are correct
+    // 6. nullifier is correct
+    // 7. the user is the utxo owner
+    // 8.
     pub fn is_valid(
         &self,
+        nullifier_crh_config: &CRHParametersVar<C::BaseField>, // nullifier crh config
+        sk: &FpVar<C::BaseField>,
+        pk: PublicKeyVar<C, CVar>,
         shielded_tx_leaf_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
             ShieldedTransactionConfig<C>,
             C::BaseField,
@@ -311,15 +321,33 @@ impl<
             <SC as Config>::TwoToOneHash,
             C::BaseField,
         >>::ParametersVar,
-    ) -> Result<Boolean<C::BaseField>, SynthesisError> {
+        block_hash_config: &<BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
+            BlockCRH<C::BaseField>,
+            C::BaseField,
+        >>::ParametersVar,
+        block_tree_leaf_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
+            BlockTreeConfig<C>,
+            C::BaseField,
+        >>::LeafHash as CRHSchemeGadget<
+            <BlockTreeConfig<C> as Config>::LeafHash,
+            C::BaseField,
+        >>::ParametersVar,
+        block_tree_two_to_one_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
+            BlockTreeConfig<C>,
+            C::BaseField,
+        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
+            <BlockTreeConfig<C> as Config>::TwoToOneHash,
+            C::BaseField,
+        >>::ParametersVar,
+    ) -> Result<(), SynthesisError> {
         // 1. utxo exists in a shielded transaction tx
-        let utxo_is_in_shielded_tx = self.utxo_inclusion_proof.verify_membership(
+        self.utxo_inclusion_proof.check_membership_with_index(
             &shielded_tx_leaf_config,
             &shielded_tx_two_to_one_config,
             &self.tx.shielded_tx,
             &self.utxo,
+            &self.utxo_index,
         )?;
-        utxo_is_in_shielded_tx.enforce_equal(&Boolean::constant(true))?;
 
         // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
         self.tx_inclusion_proof.check_membership_with_index(
@@ -338,57 +366,140 @@ impl<
             &self.tx.from,
         )?;
 
-        // 4. the transaction tree exists in a block B
-        // h(tx_tree, signer_tree) == block_hash
-        // self.block.tx_tree_root.
-        todo!()
+        // 4. block is contained within the block tree
+        let block_hash = BlockVarCRH::evaluate(&block_hash_config, &self.block)?;
+        self.block_inclusion_proof.check_membership(
+            &block_tree_leaf_config,
+            &block_tree_two_to_one_config,
+            &self.block_tree_root,
+            &block_hash,
+        )?;
+
+        // 5. nullifier computation is correct
+        let nullifier = NullifierVar::new(
+            nullifier_crh_config,
+            sk,
+            self.utxo_index.clone(),
+            self.tx_index.clone(),
+            self.block.height.clone(),
+        )?;
+        nullifier.value.enforce_equal(&self.nullifier.value)?;
+
+        // 6. ensure that user is utxo's owner
+        self.utxo.pk.enforce_equal(&pk)?;
+
+        Ok(())
     }
 }
 
-// NOTE: here is how I would think about it? (in this setup we don't need the shielded tx)
-// - inputs of the plain tx sum up to outputs of the plain tx (ok)
-// - the transparent tx leaves end up in shielded tx
-// - the committed tx inputs UTXOs are valid
-fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>(
-    cfg: &CRHParametersVar<C::BaseField>,
-    sk: &FpVar<C::BaseField>, // TODO: sk and pk no longer being EC
-    transparent_tx: &TransparentTransactionVar<C, CVar>,
-    // leaf mt params of shielded tx
+pub fn tx_validity_circuit<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    CVar: CurveVar<C, C::BaseField>,
+    TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
+    TCG: SparseConfigGadget<
+            TC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = ShieldedTransactionVar<C, CVar>,
+        >,
+    SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
+    SCG: SparseConfigGadget<
+            SC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = PublicKeyVar<C, CVar>,
+        >,
+>(
+    cs: ConstraintSystemRef<C::BaseField>,
+    cfg: &CRHParametersVar<C::BaseField>, // poseidon config, used for both h(utxo) and h(sk)
+    null_sk: &FpVar<C::BaseField>,        // user secret for nullifier computation
+    null_pk: &FpVar<C::BaseField>,        // hash of user's secret, which is registered on the L1
+    pk: PublicKeyVar<C, CVar>,            // user public key
+    transparent_tx: &TransparentTransactionVar<C, CVar>, // transparent transaction
+    shielded_tx: &ShieldedTransactionVar<C, CVar>, // shielded transaction (root of tree built from
+    // transparent tx)
+    shielded_tx_outputs: &[<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+    >>::Leaf], // utxo leaves of shielded_tx
+    shielded_tx_outputs_proofs: &[MerkleSparseTreePathVar<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+        ShieldedTransactionConfigGadget<C, CVar>,
+    >], // proofs that output utxo is leaf of current shielded transaction
+    shielded_tx_inputs_proofs: &[MerkleSparseTreePathVar<
+        ShieldedTransactionConfig<C>,
+        C::BaseField,
+        ShieldedTransactionConfigGadget<C, CVar>,
+    >], // proofs that output utxo is leaf of current shielded transaction
+    input_utxos_proofs: &[UTXOProofVar<C, CVar, TC, TCG, SC, SCG>], // proof of existence of input
+    // utxos
     shielded_tx_leaf_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::LeafHash as CRHSchemeGadget<
         <ShieldedTransactionConfig<C> as Config>::LeafHash,
         C::BaseField,
-    >>::ParametersVar,
-    // two-to-one mt params of shielded tx
+    >>::ParametersVar, // crh config for shielded_tx
     shielded_tx_two_to_one_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
         <ShieldedTransactionConfig<C> as Config>::TwoToOneHash,
         C::BaseField,
-    >>::ParametersVar,
-    shielded_tx: &ShieldedTransactionVar<C, CVar>,
-    // input utxos (first half of tree)
-    shielded_tx_inputs: &[<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
+    >>::ParametersVar, // 2-to-1 crh config for shielded_tx
+    tx_tree_leaf_config: &<<TCG as ConfigGadget<TC, C::BaseField>>::LeafHash as CRHSchemeGadget<
+        <TC as Config>::LeafHash,
         C::BaseField,
-    >>::Leaf],
-    // output utxos (second half of tree)
-    shielded_tx_outputs: &[<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
+    >>::ParametersVar, // crh config for tx tree
+    tx_tree_two_to_one_config: &<<TCG as ConfigGadget<
+            TC,
+            C::BaseField,
+        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
+            <TC as Config>::TwoToOneHash,
+            C::BaseField,
+        >>::ParametersVar, // 2-to-1 config for tx tree
+    signer_tree_leaf_config: &<<SCG as ConfigGadget<
+            SC,
+            C::BaseField,
+        >>::LeafHash as CRHSchemeGadget<
+            <SC as Config>::LeafHash,
+            C::BaseField,
+        >>::ParametersVar, // crh config for signer tree
+    signer_tree_two_to_one_config: &<<SCG as ConfigGadget<
+            SC,
+            C::BaseField,
+        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
+            <SC as Config>::TwoToOneHash,
+            C::BaseField,
+        >>::ParametersVar, // 2-to-1 config for signer tree
+    block_hash_config: &<BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
+        BlockCRH<C::BaseField>,
         C::BaseField,
-    >>::Leaf],
-    // proving the shielded tx is correctly built (all leaves are correct)
-    shielded_tx_proof: &[PathVar<
-        ShieldedTransactionConfig<C>,
+    >>::ParametersVar, // crh config for block hash
+    block_tree_leaf_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
+        BlockTreeConfig<C>,
         C::BaseField,
-        ShieldedTransactionConfigGadget<C, CVar>,
-    >],
-    // input utxos proofs
-    //    input_utxos_proofs: &[UTXOProofVar<C, CVar>],
+    >>::LeafHash as CRHSchemeGadget<
+        <BlockTreeConfig<C> as Config>::LeafHash,
+        C::BaseField,
+    >>::ParametersVar, // crh config for block tree
+    block_tree_two_to_one_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
+        BlockTreeConfig<C>,
+        C::BaseField,
+    >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
+        <BlockTreeConfig<C> as Config>::TwoToOneHash,
+        C::BaseField,
+    >>::ParametersVar, // 2-to-1 config for block tree
 ) -> Result<(), SynthesisError> {
+    // enforce correct nullifier secret is being used
+    let null_pk_computed = CRHGadget::evaluate(&cfg, &[null_sk.clone()])?;
+    null_pk_computed.enforce_equal(&null_pk)?;
+
     // checks transparent tx inputs sum up to outputs
     transparent_tx
         .inputs
@@ -403,22 +514,53 @@ fn tx_validity<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, 
                 .sum::<FpVar<C::BaseField>>(),
         )?;
 
-    // the transparent tx leaves end up in shielded tx
-    for (path, leaf) in shielded_tx_proof
-        .iter()
-        .zip(shielded_tx_inputs.iter().chain(shielded_tx_outputs))
+    let mut utxo_idx = FpVar::new_constant(cs.clone(), C::BaseField::from(0))?;
+    let one = FpVar::new_constant(cs.clone(), C::BaseField::ONE)?;
+
+    for (input_utxo_proof, shielded_tx_inclusion_proof) in
+        input_utxos_proofs.iter().zip(shielded_tx_inputs_proofs)
     {
-        let res = path.verify_membership(
+        // check that input utxo is in the shielded tx
+        shielded_tx_inclusion_proof.check_membership_with_index(
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
             &shielded_tx.shielded_tx,
-            leaf,
+            &input_utxo_proof.utxo,
+            &utxo_idx,
         )?;
-        res.enforce_equal(&Boolean::constant(true))?;
+
+        input_utxo_proof.is_valid(
+            cfg,
+            null_sk,
+            pk.clone(),
+            shielded_tx_leaf_config,
+            shielded_tx_two_to_one_config,
+            tx_tree_leaf_config,
+            tx_tree_two_to_one_config,
+            signer_tree_leaf_config,
+            signer_tree_two_to_one_config,
+            block_hash_config,
+            block_tree_leaf_config,
+            block_tree_two_to_one_config,
+        )?;
+
+        utxo_idx += one.clone();
     }
 
-    //   for utxo_proof in input_utxos_proofs {}
+    // the transparent tx output leaves end up in shielded tx
+    for (shielded_tx_inclusion_proof, output_utxo) in
+        shielded_tx_outputs_proofs.iter().zip(shielded_tx_outputs)
+    {
+        shielded_tx_inclusion_proof.check_membership_with_index(
+            shielded_tx_leaf_config,
+            shielded_tx_two_to_one_config,
+            &shielded_tx.shielded_tx,
+            output_utxo,
+            &utxo_idx,
+        )?;
 
-    todo!();
+        utxo_idx += one.clone();
+    }
+
     Ok(())
 }

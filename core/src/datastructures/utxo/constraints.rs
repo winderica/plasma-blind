@@ -12,7 +12,6 @@ use ark_r1cs_std::{
     fields::fp::FpVar,
     groups::CurveVar,
     prelude::Boolean,
-    uint64::UInt64,
 };
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 
