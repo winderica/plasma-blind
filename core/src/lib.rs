@@ -1,3 +1,4 @@
+pub mod config;
 pub mod datastructures;
 pub mod primitives;
 
@@ -24,6 +25,7 @@ use ark_r1cs_std::{
     groups::CurveVar,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use config::PlasmaBlindConfig;
 use datastructures::{
     block::{Block, constraints::BlockVar},
     blocktree::{BlockTreeConfig, constraints::BlockTreeConfigGadget},
@@ -276,74 +278,14 @@ impl<
     // 8.
     pub fn is_valid(
         &self,
-        nullifier_crh_config: &CRHParametersVar<C::BaseField>, // nullifier crh config
         sk: &FpVar<C::BaseField>,
         pk: PublicKeyVar<C, CVar>,
-        shielded_tx_leaf_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-            ShieldedTransactionConfig<C>,
-            C::BaseField,
-        >>::LeafHash as CRHSchemeGadget<
-            <ShieldedTransactionConfig<C> as Config>::LeafHash,
-            C::BaseField,
-        >>::ParametersVar,
-        shielded_tx_two_to_one_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-            ShieldedTransactionConfig<C>,
-            C::BaseField,
-        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-            <ShieldedTransactionConfig<C> as Config>::TwoToOneHash,
-            C::BaseField,
-        >>::ParametersVar,
-        tx_tree_leaf_config: &<<TCG as ConfigGadget<
-            TC,
-            C::BaseField,
-        >>::LeafHash as CRHSchemeGadget<
-            <TC as Config>::LeafHash,
-            C::BaseField,
-        >>::ParametersVar,
-        tx_tree_two_to_one_config: &<<TCG as ConfigGadget<
-            TC,
-            C::BaseField,
-        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-            <TC as Config>::TwoToOneHash,
-            C::BaseField,
-        >>::ParametersVar,
-        signer_tree_leaf_config: &<<SCG as ConfigGadget<
-            SC,
-            C::BaseField,
-        >>::LeafHash as CRHSchemeGadget<
-            <SC as Config>::LeafHash,
-            C::BaseField,
-        >>::ParametersVar,
-        signer_tree_two_to_one_config: &<<SCG as ConfigGadget<
-            SC,
-            C::BaseField,
-        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-            <SC as Config>::TwoToOneHash,
-            C::BaseField,
-        >>::ParametersVar,
-        block_hash_config: &<BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
-            BlockCRH<C::BaseField>,
-            C::BaseField,
-        >>::ParametersVar,
-        block_tree_leaf_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
-            BlockTreeConfig<C>,
-            C::BaseField,
-        >>::LeafHash as CRHSchemeGadget<
-            <BlockTreeConfig<C> as Config>::LeafHash,
-            C::BaseField,
-        >>::ParametersVar,
-        block_tree_two_to_one_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
-            BlockTreeConfig<C>,
-            C::BaseField,
-        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-            <BlockTreeConfig<C> as Config>::TwoToOneHash,
-            C::BaseField,
-        >>::ParametersVar,
+        plasma_blind_config: &PlasmaBlindConfig<C, CVar, TC, TCG, SC, SCG>,
     ) -> Result<(), SynthesisError> {
         // 1. utxo exists in a shielded transaction tx
         self.utxo_inclusion_proof.check_membership_with_index(
-            &shielded_tx_leaf_config,
-            &shielded_tx_two_to_one_config,
+            &plasma_blind_config.shielded_tx_leaf_config,
+            &plasma_blind_config.shielded_tx_two_to_one_config,
             &self.tx.shielded_tx,
             &self.utxo,
             &self.utxo_index,
@@ -351,8 +293,8 @@ impl<
 
         // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
         self.tx_inclusion_proof.check_membership_with_index(
-            &tx_tree_leaf_config,
-            &tx_tree_two_to_one_config,
+            &plasma_blind_config.tx_tree_leaf_config,
+            &plasma_blind_config.tx_tree_two_to_one_config,
             &self.block.tx_tree_root,
             &self.tx,
             &self.tx_index,
@@ -360,24 +302,25 @@ impl<
 
         // 3. the transaction tree T has been signed by the sender s
         self.signer_inclusion_proof.check_membership(
-            &signer_tree_leaf_config,
-            &signer_tree_two_to_one_config,
+            &plasma_blind_config.signer_tree_leaf_config,
+            &plasma_blind_config.signer_tree_two_to_one_config,
             &self.block.signer_tree_root,
             &self.tx.from,
         )?;
 
         // 4. block is contained within the block tree
-        let block_hash = BlockVarCRH::evaluate(&block_hash_config, &self.block)?;
+        let block_hash =
+            BlockVarCRH::evaluate(&plasma_blind_config.block_hash_config, &self.block)?;
         self.block_inclusion_proof.check_membership(
-            &block_tree_leaf_config,
-            &block_tree_two_to_one_config,
+            &plasma_blind_config.block_tree_leaf_config,
+            &plasma_blind_config.block_tree_two_to_one_config,
             &self.block_tree_root,
             &block_hash,
         )?;
 
         // 5. nullifier computation is correct
         let nullifier = NullifierVar::new(
-            nullifier_crh_config,
+            &plasma_blind_config.poseidon_config,
             sk,
             self.utxo_index.clone(),
             self.tx_index.clone(),
@@ -415,10 +358,9 @@ pub fn tx_validity_circuit<
         >,
 >(
     cs: ConstraintSystemRef<C::BaseField>,
-    cfg: &CRHParametersVar<C::BaseField>, // poseidon config, used for both h(utxo) and h(sk)
-    null_sk: &FpVar<C::BaseField>,        // user secret for nullifier computation
-    null_pk: &FpVar<C::BaseField>,        // hash of user's secret, which is registered on the L1
-    pk: PublicKeyVar<C, CVar>,            // user public key
+    null_sk: &FpVar<C::BaseField>, // user secret for nullifier computation
+    null_pk: &FpVar<C::BaseField>, // hash of user's secret, which is registered on the L1
+    pk: PublicKeyVar<C, CVar>,     // user public key
     transparent_tx: &TransparentTransactionVar<C, CVar>, // transparent transaction
     shielded_tx: &ShieldedTransactionVar<C, CVar>, // shielded transaction (root of tree built from
     // transparent tx)
@@ -438,66 +380,11 @@ pub fn tx_validity_circuit<
     >], // proofs that output utxo is leaf of current shielded transaction
     input_utxos_proofs: &[UTXOProofVar<C, CVar, TC, TCG, SC, SCG>], // proof of existence of input
     // utxos
-    shielded_tx_leaf_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-    >>::LeafHash as CRHSchemeGadget<
-        <ShieldedTransactionConfig<C> as Config>::LeafHash,
-        C::BaseField,
-    >>::ParametersVar, // crh config for shielded_tx
-    shielded_tx_two_to_one_config: &<<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-    >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-        <ShieldedTransactionConfig<C> as Config>::TwoToOneHash,
-        C::BaseField,
-    >>::ParametersVar, // 2-to-1 crh config for shielded_tx
-    tx_tree_leaf_config: &<<TCG as ConfigGadget<TC, C::BaseField>>::LeafHash as CRHSchemeGadget<
-        <TC as Config>::LeafHash,
-        C::BaseField,
-    >>::ParametersVar, // crh config for tx tree
-    tx_tree_two_to_one_config: &<<TCG as ConfigGadget<
-            TC,
-            C::BaseField,
-        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-            <TC as Config>::TwoToOneHash,
-            C::BaseField,
-        >>::ParametersVar, // 2-to-1 config for tx tree
-    signer_tree_leaf_config: &<<SCG as ConfigGadget<
-            SC,
-            C::BaseField,
-        >>::LeafHash as CRHSchemeGadget<
-            <SC as Config>::LeafHash,
-            C::BaseField,
-        >>::ParametersVar, // crh config for signer tree
-    signer_tree_two_to_one_config: &<<SCG as ConfigGadget<
-            SC,
-            C::BaseField,
-        >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-            <SC as Config>::TwoToOneHash,
-            C::BaseField,
-        >>::ParametersVar, // 2-to-1 config for signer tree
-    block_hash_config: &<BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
-        BlockCRH<C::BaseField>,
-        C::BaseField,
-    >>::ParametersVar, // crh config for block hash
-    block_tree_leaf_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
-        BlockTreeConfig<C>,
-        C::BaseField,
-    >>::LeafHash as CRHSchemeGadget<
-        <BlockTreeConfig<C> as Config>::LeafHash,
-        C::BaseField,
-    >>::ParametersVar, // crh config for block tree
-    block_tree_two_to_one_config: &<<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
-        BlockTreeConfig<C>,
-        C::BaseField,
-    >>::TwoToOneHash as TwoToOneCRHSchemeGadget<
-        <BlockTreeConfig<C> as Config>::TwoToOneHash,
-        C::BaseField,
-    >>::ParametersVar, // 2-to-1 config for block tree
+    plasma_blind_config: &PlasmaBlindConfig<C, CVar, TC, TCG, SC, SCG>,
 ) -> Result<(), SynthesisError> {
     // enforce correct nullifier secret is being used
-    let null_pk_computed = CRHGadget::evaluate(&cfg, &[null_sk.clone()])?;
+    let null_pk_computed =
+        CRHGadget::evaluate(&plasma_blind_config.poseidon_config, &[null_sk.clone()])?;
     null_pk_computed.enforce_equal(&null_pk)?;
 
     // checks transparent tx inputs sum up to outputs
@@ -522,27 +409,14 @@ pub fn tx_validity_circuit<
     {
         // check that input utxo is in the shielded tx
         shielded_tx_inclusion_proof.check_membership_with_index(
-            shielded_tx_leaf_config,
-            shielded_tx_two_to_one_config,
+            &plasma_blind_config.shielded_tx_leaf_config,
+            &plasma_blind_config.shielded_tx_two_to_one_config,
             &shielded_tx.shielded_tx,
             &input_utxo_proof.utxo,
             &utxo_idx,
         )?;
 
-        input_utxo_proof.is_valid(
-            cfg,
-            null_sk,
-            pk.clone(),
-            shielded_tx_leaf_config,
-            shielded_tx_two_to_one_config,
-            tx_tree_leaf_config,
-            tx_tree_two_to_one_config,
-            signer_tree_leaf_config,
-            signer_tree_two_to_one_config,
-            block_hash_config,
-            block_tree_leaf_config,
-            block_tree_two_to_one_config,
-        )?;
+        input_utxo_proof.is_valid(null_sk, pk.clone(), &plasma_blind_config)?;
 
         utxo_idx += one.clone();
     }
@@ -552,8 +426,8 @@ pub fn tx_validity_circuit<
         shielded_tx_outputs_proofs.iter().zip(shielded_tx_outputs)
     {
         shielded_tx_inclusion_proof.check_membership_with_index(
-            shielded_tx_leaf_config,
-            shielded_tx_two_to_one_config,
+            &plasma_blind_config.shielded_tx_leaf_config,
+            &plasma_blind_config.shielded_tx_two_to_one_config,
             &shielded_tx.shielded_tx,
             output_utxo,
             &utxo_idx,
