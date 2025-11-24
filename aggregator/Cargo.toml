@@ -2,3 +2,17 @@
 name = "aggregator"
 version = "0.1.0"
 edition = "2024"
+
+[dependencies]
+ark-ff = { workspace = true, features = ["asm"] }
+ark-relations = { workspace = true }
+ark-std = { workspace = true, features = ["getrandom"] } 
+ark-r1cs-std = { workspace = true }
+
+sonobe-fs = { workspace = true }
+sonobe-ivc = { workspace = true }
+sonobe-primitives = { workspace = true }
+
+[dev-dependencies]
+ark-bn254 = { workspace = true, features = ["curve", "r1cs"] }
+ark-grumpkin = { workspace = true, features = ["r1cs"] }

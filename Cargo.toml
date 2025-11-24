@@ -21,6 +21,10 @@ ark-std = { git = "https://github.com/arkworks-rs/std", default-features = false
 ark-bn254 = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
 ark-grumpkin = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
 
+sonobe-fs = { git = "https://github.com/privacy-ethereum/sonobe", rev = "7ad64ef647a4bc75462ad5475902acfd7a6da90a" }
+sonobe-ivc = { git = "https://github.com/privacy-ethereum/sonobe", rev = "7ad64ef647a4bc75462ad5475902acfd7a6da90a" }
+sonobe-primitives = { git = "https://github.com/privacy-ethereum/sonobe", rev = "7ad64ef647a4bc75462ad5475902acfd7a6da90a" }
+
 [patch.crates-io]
 # We depend on git versions of arkworks crates, but some of our dependencies
 # depend on crates.io versions, so we need to override them here to avoid
