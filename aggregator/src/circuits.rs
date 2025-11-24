@@ -2,29 +2,23 @@ use ark_ff::PrimeField;
 use ark_r1cs_std::{
     GR1CSVar,
     alloc::{AllocVar, AllocationMode},
-    convert::ToConstraintFieldGadget,
-    eq::EqGadget,
-    fields::{FieldVar, fp::FpVar},
+    fields::fp::FpVar,
 };
 use ark_relations::gr1cs::{
-    ConstraintSynthesizer, ConstraintSystem, ConstraintSystemRef, Namespace, SynthesisError,
-    SynthesisMode,
+    ConstraintSystem, ConstraintSystemRef, Namespace, SynthesisError, SynthesisMode,
 };
 use ark_std::{borrow::Borrow, fmt::Debug, marker::PhantomData, rand::RngCore};
 use sonobe_fs::{
     DeciderKey, FoldingInstanceVar, FoldingSchemeDef, FoldingSchemeGadgetDef,
-    FoldingSchemeGadgetOpsFull, FoldingSchemeGadgetOpsPartial, GroupBasedFoldingSchemePrimary,
-    GroupBasedFoldingSchemePrimaryDef, GroupBasedFoldingSchemeSecondary,
-    GroupBasedFoldingSchemeSecondaryDef,
+    FoldingSchemeGadgetOpsFull, FoldingSchemeGadgetOpsPartial, GroupBasedFoldingSchemePrimaryDef,
+    GroupBasedFoldingSchemeSecondary, GroupBasedFoldingSchemeSecondaryDef,
 };
 use sonobe_ivc::compilers::cyclefold::{FoldingSchemeCycleFoldExt, circuits::CycleFoldConfig};
 use sonobe_primitives::{
-    algebra::Val,
-    arithmetizations::Arith,
     circuits::{ConstraintSystemExt, FCircuit},
     commitments::VectorCommitmentDef,
     relations::WitnessInstanceSampler,
-    traits::{CF2, Dummy, SonobeCurve},
+    traits::{Dummy, SonobeCurve},
     transcripts::{Absorbable, AbsorbableGadget, Transcript, TranscriptVar},
 };
 
@@ -221,7 +215,7 @@ impl<
         // can hold a state if needed to store data to generate the constraints.
         &self,
         cs: ConstraintSystemRef<Self::Field>,
-        i: FpVar<Self::Field>,
+        _i: FpVar<Self::Field>,
         z_i: Self::StateVar,
         external_inputs: Self::ExternalInputs, // inputs that are not part of the state
     ) -> Result<(Self::StateVar, Self::ExternalOutputs), SynthesisError> {
@@ -378,17 +372,9 @@ impl<
                 FoldingInstanceVar::new_witness_with_public_inputs(cs.clone(), cf_u, cf_u_x)?;
             cf_UU = FS2::Gadget::verify(&(), &mut transcript2, [&cf_UU], [&cf_u], cf_proof)?;
         }
-        let cf_U_dummy =
-            AllocVar::new_constant(cs.clone(), FS2::RU::dummy(self.dk2.to_arith_config()))?;
-
-        let is_basecase = i.is_zero()?;
-        let actual_cf_UU = is_basecase.select(&cf_U_dummy, &cf_UU)?;
 
         Ok((
-            AggregatorCircuitStateVar {
-                V: VV,
-                cf_U: actual_cf_UU,
-            },
+            AggregatorCircuitStateVar { V: VV, cf_U: cf_UU },
             AggregatorCircuitExternalOutputs {
                 YY,
                 cf_WW: cf_W,
@@ -403,6 +389,7 @@ mod tests {
     use ark_bn254::{Fr, G1Projective as C1};
     use ark_ff::UniformRand;
     use ark_grumpkin::Projective as C2;
+    use ark_relations::gr1cs::ConstraintSynthesizer;
     use ark_std::{
         error::Error,
         rand::{rngs::ThreadRng, thread_rng},
@@ -484,16 +471,6 @@ mod tests {
 
         let dk1 = <FS1 as FoldingSchemeOps<1, 1>>::generate_keys(pp_f, arith1)?;
 
-        let mut external_inputs = AggregatorCircuitExternalInputs::<FS1, FS2, _> {
-            Y: FS1::RW::dummy(dk1.to_arith_config()),
-            WW: FS1::RW::dummy(dk1.to_arith_config()),
-            U: FS1::RU::dummy(dk1.to_arith_config()),
-            u: FS1::IU::dummy(dk1.to_arith_config()),
-            proof: FS1::Proof::<1, 1>::dummy(dk1.to_arith_config()),
-            cf_W: FS2::RW::dummy(dk2.to_arith_config()),
-            rng: thread_rng(),
-        };
-
         let mut WWs = vec![];
         let mut Us = vec![];
         let mut us = vec![];
@@ -508,7 +485,7 @@ mod tests {
             let (WW, _, proof, _) = FS1::prove(
                 dk1.to_pk(),
                 &mut transcript1,
-                &[W],
+                &[&W],
                 &[&U],
                 &[&w],
                 &[&u],
@@ -523,8 +500,8 @@ mod tests {
         let step_circuit = AggregatorCircuit::<T, FS1, FS2, _> {
             hash_config,
             pp_hash: Default::default(),
-            dk1,
-            dk2,
+            dk1: dk1.clone(),
+            dk2: dk2.clone(),
             _r: PhantomData,
         };
 
@@ -538,21 +515,30 @@ mod tests {
             initial_state,
         )?;
 
+        let mut Y = FS1::RW::dummy(dk1.to_arith_config());
+        let mut cf_W = FS2::RW::dummy(dk2.to_arith_config());
+        let mut rng = thread_rng();
+
         for ((WW, U), (u, proof)) in WWs
             .into_iter()
             .zip(Us.into_iter())
             .zip(us.into_iter().zip(proofs.into_iter()))
         {
-            let external_outputs = prover.prove_step(external_inputs, &mut rng1)?;
-            external_inputs = AggregatorCircuitExternalInputs::<FS1, FS2, _> {
-                Y: external_outputs.YY,
-                WW,
-                U,
-                u,
-                proof,
-                cf_W: external_outputs.cf_WW,
-                rng: external_outputs.rng,
-            };
+            let external_outputs = prover.prove_step(
+                AggregatorCircuitExternalInputs {
+                    Y,
+                    WW,
+                    U,
+                    u,
+                    proof,
+                    cf_W,
+                    rng,
+                },
+                &mut rng1,
+            )?;
+            rng = external_outputs.rng;
+            Y = external_outputs.YY;
+            cf_W = external_outputs.cf_WW;
 
             CycleFoldBasedIVC::<FS1, FS2, T>::verify::<AggregatorCircuit<T, FS1, FS2, ThreadRng>>(
                 &vk,
@@ -561,6 +547,9 @@ mod tests {
                 &prover.current_state,
                 &prover.current_proof,
             )?;
+
+            <FS1 as FoldingSchemeOps<1, 1>>::decide_running(&dk1, &Y, &prover.current_state.V)?;
+            FS2::decide_running(&dk2, &cf_W, &prover.current_state.cf_U)?;
         }
 
         Ok(())
