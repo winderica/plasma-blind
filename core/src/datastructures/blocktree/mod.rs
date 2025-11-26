@@ -7,11 +7,16 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use std::marker::PhantomData;
 
-use crate::primitives::{crh::BlockTreeCRH, sparsemt::SparseConfig};
+use crate::primitives::{
+    crh::BlockTreeCRH,
+    sparsemt::{MerkleSparseTree, SparseConfig},
+};
 
 use super::block::BlockHash;
 
 pub mod constraints;
+
+pub type BlockTree<P> = MerkleSparseTree<P>;
 
 const BLOCK_TREE_HEIGHT: u64 = 25;
 
