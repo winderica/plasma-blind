@@ -12,6 +12,7 @@ use ark_crypto_primitives::{
 use ark_ec::{AdditiveGroup, AffineRepr, CurveGroup};
 use ark_ff::{Field, PrimeField};
 use ark_std::rand::Rng;
+use utils::initialize_poseidon_config;
 
 use crate::datastructures::{
     block::{Block, BlockHash},
@@ -22,6 +23,7 @@ use crate::datastructures::{
 };
 
 pub mod constraints;
+pub mod utils;
 
 pub fn poseidon_custom_config<F: PrimeField>(
     full_rounds: usize,
@@ -65,7 +67,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for ShieldedTransa
     type Parameters = PoseidonConfig<C::BaseField>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        unimplemented!()
+        Ok(initialize_poseidon_config())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -88,9 +90,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for PublicKeyCRH<C
     type Parameters = PoseidonConfig<C::BaseField>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        // automatic generation of parameters are not implemented yet
-        // therefore, the developers must specify the parameters themselves
-        unimplemented!()
+        Ok(initialize_poseidon_config())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -148,9 +148,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for UTXOCRH<C> {
     type Parameters = PoseidonConfig<C::BaseField>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        // automatic generation of parameters are not implemented yet
-        // therefore, the developers must specify the parameters themselves
-        unimplemented!()
+        Ok(initialize_poseidon_config())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -190,7 +188,7 @@ impl<F: PrimeField + Absorb> CRHScheme for BlockCRH<F> {
     type Parameters = PoseidonConfig<F>;
 
     fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
-        todo!()
+        Ok(initialize_poseidon_config())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -218,7 +216,7 @@ impl<F: PrimeField + Absorb> CRHScheme for BlockTreeCRH<F> {
     type Parameters = ();
 
     fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
-        todo!()
+        Ok(())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(

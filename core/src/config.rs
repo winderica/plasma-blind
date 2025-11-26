@@ -42,6 +42,43 @@ pub struct PlasmaBlindConfig<
         <<BlockTreeConfig<C> as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for block tree
 }
 
+impl<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    TC: SparseConfig, // transaction tree config
+    SC: SparseConfig, // signer tree config
+> PlasmaBlindConfig<C, TC, SC>
+{
+    pub fn new(
+        poseidon_config: PoseidonConfig<C::BaseField>, // poseidon config, used for both h(utxo) and h(sk)
+        shielded_tx_leaf_config:
+        <<ShieldedTransactionConfig<C> as Config>::LeafHash as CRHScheme>::Parameters, // crh config for shielded_tx
+        shielded_tx_two_to_one_config:
+        <<ShieldedTransactionConfig<C> as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 crh config for shielded_tx
+        tx_tree_leaf_config: <<TC as Config>::LeafHash as CRHScheme>::Parameters, // crh config for tx tree
+        tx_tree_two_to_one_config: <<TC as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for tx tree
+        signer_tree_leaf_config: <<SC as Config>::LeafHash as CRHScheme>::Parameters, // crh config for signer tree
+        signer_tree_two_to_one_config:
+        <<SC as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for signer tree
+        block_hash_config: <BlockCRH<C::BaseField> as CRHScheme>::Parameters, // crh config for block hash
+        block_tree_leaf_config: <<BlockTreeConfig<C> as Config>::LeafHash as CRHScheme>::Parameters, // crh config for block tree
+        block_tree_two_to_one_config:
+        <<BlockTreeConfig<C> as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for block tree
+    ) -> Self {
+        Self {
+            poseidon_config,
+            shielded_tx_leaf_config,
+            shielded_tx_two_to_one_config,
+            tx_tree_leaf_config,
+            tx_tree_two_to_one_config,
+            signer_tree_leaf_config,
+            signer_tree_two_to_one_config,
+            block_hash_config,
+            block_tree_leaf_config,
+            block_tree_two_to_one_config,
+        }
+    }
+}
+
 pub struct PlasmaBlindConfigVar<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,

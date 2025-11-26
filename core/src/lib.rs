@@ -395,7 +395,7 @@ pub fn tx_validity_circuit<
         .sum::<FpVar<C::BaseField>>()
         .enforce_equal(
             &transparent_tx
-                .inputs
+                .outputs
                 .iter()
                 .map(|i| &i.amount)
                 .sum::<FpVar<C::BaseField>>(),
@@ -441,7 +441,78 @@ pub fn tx_validity_circuit<
 
 #[cfg(test)]
 pub mod tests {
+    use ark_crypto_primitives::crh::CRHScheme;
+    use ark_r1cs_std::alloc::AllocVar;
+    use ark_r1cs_std::alloc::AllocationMode;
+    use ark_relations::gr1cs::ConstraintSystem;
+    use ark_std::test_rng;
+
+    use crate::{
+        config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
+        datastructures::{
+            signerlist::{SignerTreeConfig, constraints::SignerTreeConfigGadget},
+            txtree::{TransactionTreeConfig, constraints::TransactionTreeConfigGadget},
+        },
+        primitives::crh::{
+            BlockCRH, BlockTreeCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH,
+            utils::initialize_poseidon_config,
+        },
+    };
+    use ark_bn254::Fr;
+    use ark_grumpkin::Projective as GrumpkinProjective;
+    use ark_grumpkin::constraints::GVar as GrumpkinProjectiveVar;
 
     #[test]
-    fn test_validity_circuit() {}
+    fn test_validity_circuit() {
+        let mut rng = test_rng();
+
+        // initialize our plasma blind config
+        // poseidon crh only for now, should be configurable in the future
+        let poseidon_config = initialize_poseidon_config::<Fr>();
+        let shielded_tx_leaf_config =
+            <UTXOCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
+        let shielded_tx_two_to_one_config = initialize_poseidon_config::<Fr>();
+        let tx_tree_leaf_config =
+            <ShieldedTransactionCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
+        let tx_tree_two_to_one_config = initialize_poseidon_config::<Fr>();
+        let signer_tree_leaf_config =
+            <PublicKeyCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
+        let signer_tree_two_to_one_config = initialize_poseidon_config::<Fr>();
+        let block_hash_config = <BlockCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = <BlockTreeCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
+        let block_tree_two_to_one_config = initialize_poseidon_config::<Fr>();
+
+        let config = PlasmaBlindConfig::<
+            GrumpkinProjective,
+            TransactionTreeConfig<GrumpkinProjective>,
+            SignerTreeConfig<GrumpkinProjective>,
+        >::new(
+            poseidon_config,
+            shielded_tx_leaf_config,
+            shielded_tx_two_to_one_config,
+            tx_tree_leaf_config,
+            tx_tree_two_to_one_config,
+            signer_tree_leaf_config,
+            signer_tree_two_to_one_config,
+            block_hash_config,
+            block_tree_leaf_config,
+            block_tree_two_to_one_config,
+        );
+
+        // initialize cs
+        let cs = ConstraintSystem::<Fr>::new_ref();
+        let config_var =
+            PlasmaBlindConfigVar::<
+                _,
+                GrumpkinProjectiveVar,
+                _,
+                TransactionTreeConfigGadget<_, GrumpkinProjectiveVar>,
+                _,
+                SignerTreeConfigGadget<_, GrumpkinProjectiveVar>,
+            >::new_variable(cs.clone(), || Ok(config), AllocationMode::Constant)
+            .unwrap();
+
+        cs.finalize();
+        println!("n constraints: {}", cs.num_constraints());
+    }
 }
