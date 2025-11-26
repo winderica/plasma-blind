@@ -1,3 +1,25 @@
+use ark_crypto_primitives::{
+    crh::{
+        poseidon::{
+            constraints::{CRHParametersVar, TwoToOneCRHGadget},
+            TwoToOneCRH,
+        },
+        CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
+    },
+    merkle_tree::constraints::PathVar,
+    sponge::Absorb,
+};
+use ark_ec::CurveGroup;
+use ark_ff::PrimeField;
+use ark_ff::Zero;
+use ark_r1cs_std::{
+    alloc::{AllocVar, AllocationMode},
+    eq::EqGadget,
+    fields::fp::FpVar,
+    groups::CurveVar,
+    prelude::Boolean,
+};
+use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 use core::{
     datastructures::{
         block::constraints::BlockVar,
@@ -21,29 +43,6 @@ use core::{
 };
 use std::borrow::Borrow;
 use std::{cmp::Ordering, marker::PhantomData};
-
-use ark_crypto_primitives::{
-    crh::{
-        poseidon::{
-            constraints::{CRHParametersVar, TwoToOneCRHGadget},
-            TwoToOneCRH,
-        },
-        CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
-    },
-    merkle_tree::constraints::PathVar,
-    sponge::Absorb,
-};
-use ark_ec::CurveGroup;
-use ark_ff::PrimeField;
-use ark_r1cs_std::{
-    alloc::{AllocVar, AllocationMode},
-    eq::EqGadget,
-    fields::fp::FpVar,
-    groups::CurveVar,
-    prelude::Boolean,
-    GR1CSVar,
-};
-use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 
 use crate::UserAux;
 
@@ -449,6 +448,7 @@ mod tests {
             ShieldedTransaction::default(),
             ShieldedTransaction::default(),
         ];
+
         let tx_leaves = BTreeMap::from_iter(
             transactions
                 .iter()
@@ -470,7 +470,7 @@ mod tests {
         let shielded_tx_utxos_proofs = (4..8)
             .map(|idx| shielded_tx.generate_proof(idx).unwrap())
             .collect();
-        let shielded_tx_inclusion_proof = transaction_tree.generate_membership_proof(0).unwrap();
+        let shielded_tx_inclusion_proof = transaction_tree.generate_membership_proof(1).unwrap();
         let signer_inclusion_proof = signer_tree.generate_membership_proof(0).unwrap();
         let sender_aux = UserAux {
             block,
