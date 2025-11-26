@@ -25,7 +25,7 @@ use ark_r1cs_std::{
     groups::CurveVar,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
-use config::PlasmaBlindConfig;
+use config::{PlasmaBlindConfig, PlasmaBlindConfigVar};
 use datastructures::{
     block::{Block, constraints::BlockVar},
     blocktree::{BlockTreeConfig, constraints::BlockTreeConfigGadget},
@@ -280,7 +280,7 @@ impl<
         &self,
         sk: &FpVar<C::BaseField>,
         pk: PublicKeyVar<C, CVar>,
-        plasma_blind_config: &PlasmaBlindConfig<C, CVar, TC, TCG, SC, SCG>,
+        plasma_blind_config: &PlasmaBlindConfigVar<C, CVar, TC, TCG, SC, SCG>,
     ) -> Result<(), SynthesisError> {
         // 1. utxo exists in a shielded transaction tx
         self.utxo_inclusion_proof.check_membership_with_index(
@@ -380,7 +380,7 @@ pub fn tx_validity_circuit<
     >], // proofs that output utxo is leaf of current shielded transaction
     input_utxos_proofs: &[UTXOProofVar<C, CVar, TC, TCG, SC, SCG>], // proof of existence of input
     // utxos
-    plasma_blind_config: &PlasmaBlindConfig<C, CVar, TC, TCG, SC, SCG>,
+    plasma_blind_config: &PlasmaBlindConfigVar<C, CVar, TC, TCG, SC, SCG>,
 ) -> Result<(), SynthesisError> {
     // enforce correct nullifier secret is being used
     let null_pk_computed =
@@ -437,4 +437,11 @@ pub fn tx_validity_circuit<
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+pub mod tests {
+
+    #[test]
+    fn test_validity_circuit() {}
 }
