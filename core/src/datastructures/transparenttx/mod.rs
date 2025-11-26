@@ -9,3 +9,9 @@ pub struct TransparentTransaction<C: CurveGroup> {
     pub inputs: [UTXO<C>; TX_IO_SIZE],
     pub outputs: [UTXO<C>; TX_IO_SIZE],
 }
+
+impl<C: CurveGroup> TransparentTransaction<C> {
+    pub fn new(inputs: [UTXO<C>; TX_IO_SIZE], outputs: [UTXO<C>; TX_IO_SIZE]) -> Self {
+        Self { inputs, outputs }
+    }
+}
