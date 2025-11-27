@@ -12,3 +12,4 @@ ark-relations = { workspace = true }
 ark-bn254 = { workspace = true, features = ["r1cs"] }
 ark-grumpkin = { workspace = true, features = ["r1cs"] }
 ark-std = { workspace = true, features = ["getrandom"] } 
+ark-serialize = { workspace = true }

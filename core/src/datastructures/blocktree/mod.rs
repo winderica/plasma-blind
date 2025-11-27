@@ -18,7 +18,7 @@ pub mod constraints;
 
 pub type BlockTree<P> = MerkleSparseTree<P>;
 
-const BLOCK_TREE_HEIGHT: u64 = 25;
+const BLOCK_TREE_HEIGHT: u64 = 22;
 
 #[derive(Clone, Debug)]
 pub struct BlockTreeConfig<C: CurveGroup> {

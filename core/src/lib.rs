@@ -1,5 +1,5 @@
 pub mod config;
-use ark_r1cs_std::fields::FieldVar;
+use ark_r1cs_std::{fields::FieldVar, prelude::Boolean};
 pub mod datastructures;
 pub mod primitives;
 
@@ -13,7 +13,10 @@ use ark_crypto_primitives::{
             constraints::{CRHGadget, CRHParametersVar, TwoToOneCRHGadget},
         },
     },
-    merkle_tree::{Config, constraints::ConfigGadget},
+    merkle_tree::{
+        Config, Path,
+        constraints::{ConfigGadget, PathVar},
+    },
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ec::CurveGroup;
@@ -114,7 +117,7 @@ impl<F: PrimeField> AllocVar<Nullifier<F>, F> for NullifierVar<F> {
 // each input utxo requires a proof, attesting to its validity and nullifier
 // valid utxo = included in shielded tx, within a tx tree which was signed at a certain block
 // included within the block tree
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct UTXOProof<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     TC: SparseConfig,
@@ -125,12 +128,44 @@ pub struct UTXOProof<
     tx_index: C::BaseField,
     utxo: UTXO<C>,
     utxo_index: C::BaseField,
-    utxo_inclusion_proof: MerkleSparseTreePath<ShieldedTransactionConfig<C>>,
+    utxo_inclusion_proof: Path<ShieldedTransactionConfig<C>>,
     signer_inclusion_proof: MerkleSparseTreePath<SC>,
     tx_inclusion_proof: MerkleSparseTreePath<TC>,
     block_tree_root: <BlockTreeConfig<C> as Config>::InnerDigest,
     block_inclusion_proof: MerkleSparseTreePath<BlockTreeConfig<C>>,
     nullifier: Nullifier<C::BaseField>,
+}
+
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>, TC: SparseConfig, SC: SparseConfig>
+    UTXOProof<C, TC, SC>
+{
+    pub fn new(
+        block: Block<C::BaseField>,
+        tx: ShieldedTransaction<C>,
+        tx_index: C::BaseField,
+        utxo: UTXO<C>,
+        utxo_index: C::BaseField,
+        utxo_inclusion_proof: Path<ShieldedTransactionConfig<C>>,
+        signer_inclusion_proof: MerkleSparseTreePath<SC>,
+        tx_inclusion_proof: MerkleSparseTreePath<TC>,
+        block_tree_root: <BlockTreeConfig<C> as Config>::InnerDigest,
+        block_inclusion_proof: MerkleSparseTreePath<BlockTreeConfig<C>>,
+        nullifier: Nullifier<C::BaseField>,
+    ) -> Self {
+        UTXOProof {
+            block,
+            tx,
+            tx_index,
+            utxo,
+            utxo_index,
+            utxo_inclusion_proof,
+            signer_inclusion_proof,
+            tx_inclusion_proof,
+            block_tree_root,
+            block_inclusion_proof,
+            nullifier,
+        }
+    }
 }
 
 pub struct UTXOProofVar<
@@ -145,7 +180,7 @@ pub struct UTXOProofVar<
     tx: <TCG as ConfigGadget<TC, C::BaseField>>::Leaf,
     utxo: UTXOVar<C, CVar>,
     utxo_index: FpVar<C::BaseField>,
-    utxo_inclusion_proof: MerkleSparseTreePathVar<
+    utxo_inclusion_proof: PathVar<
         ShieldedTransactionConfig<C>,
         C::BaseField,
         ShieldedTransactionConfigGadget<C, CVar>,
@@ -193,7 +228,7 @@ impl<
         let utxo = UTXOVar::new_variable(cs.clone(), || Ok(utxo_proof.utxo.clone()), mode)?;
         let utxo_index =
             FpVar::new_variable(cs.clone(), || Ok(utxo_proof.utxo_index.clone()), mode)?;
-        let utxo_inclusion_proof = MerkleSparseTreePathVar::new_variable(
+        let utxo_inclusion_proof = PathVar::new_variable(
             cs.clone(),
             || Ok(utxo_proof.utxo_inclusion_proof.clone()),
             mode,
@@ -288,15 +323,13 @@ impl<
         let is_not_zero = !self.utxo.amount.is_zero()?;
 
         // 1. utxo exists in a shielded transaction tx
-        self.utxo_inclusion_proof
-            .conditionally_check_membership_with_index(
-                &plasma_blind_config.shielded_tx_leaf_config,
-                &plasma_blind_config.shielded_tx_two_to_one_config,
-                &self.tx.shielded_tx,
-                &self.utxo,
-                &self.utxo_index,
-                &is_not_zero,
-            )?;
+        let is_in_tx = self.utxo_inclusion_proof.verify_membership(
+            &plasma_blind_config.shielded_tx_leaf_config,
+            &plasma_blind_config.shielded_tx_two_to_one_config,
+            &self.tx.shielded_tx,
+            &self.utxo,
+        )?;
+        is_in_tx.conditional_enforce_equal(&Boolean::Constant(true), &is_not_zero)?;
 
         // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
         self.tx_inclusion_proof
@@ -383,12 +416,7 @@ pub fn tx_validity_circuit<
         ShieldedTransactionConfig<C>,
         C::BaseField,
     >>::Leaf], // utxo leaves of shielded_tx
-    shielded_tx_outputs_proofs: &[MerkleSparseTreePathVar<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-        ShieldedTransactionConfigGadget<C, CVar>,
-    >], // proofs that output utxo is leaf of current shielded transaction
-    shielded_tx_inputs_proofs: &[MerkleSparseTreePathVar<
+    shielded_tx_outputs_proofs: &[PathVar<
         ShieldedTransactionConfig<C>,
         C::BaseField,
         ShieldedTransactionConfigGadget<C, CVar>,
@@ -416,39 +444,21 @@ pub fn tx_validity_circuit<
                 .sum::<FpVar<C::BaseField>>(),
         )?;
 
-    let mut utxo_idx = FpVar::new_constant(cs.clone(), C::BaseField::from(0))?;
-    let one = FpVar::new_constant(cs.clone(), C::BaseField::ONE)?;
-
-    for (input_utxo_proof, shielded_tx_inclusion_proof) in
-        input_utxos_proofs.iter().zip(shielded_tx_inputs_proofs)
-    {
-        // check that input utxo is in the shielded tx
-        shielded_tx_inclusion_proof.check_membership_with_index(
-            &plasma_blind_config.shielded_tx_leaf_config,
-            &plasma_blind_config.shielded_tx_two_to_one_config,
-            &shielded_tx.shielded_tx,
-            &input_utxo_proof.utxo,
-            &utxo_idx,
-        )?;
-
+    for input_utxo_proof in input_utxos_proofs {
         input_utxo_proof.is_valid(null_sk, pk.clone(), &plasma_blind_config)?;
-
-        utxo_idx += one.clone();
     }
 
-    // the transparent tx output leaves end up in shielded tx
     for (shielded_tx_inclusion_proof, output_utxo) in
         shielded_tx_outputs_proofs.iter().zip(shielded_tx_outputs)
     {
-        shielded_tx_inclusion_proof.check_membership_with_index(
+        let is_in_tx = shielded_tx_inclusion_proof.verify_membership(
             &plasma_blind_config.shielded_tx_leaf_config,
             &plasma_blind_config.shielded_tx_two_to_one_config,
             &shielded_tx.shielded_tx,
             output_utxo,
-            &utxo_idx,
         )?;
 
-        utxo_idx += one.clone();
+        is_in_tx.enforce_equal(&Boolean::Constant(true))?;
     }
 
     Ok(())
@@ -456,31 +466,46 @@ pub fn tx_validity_circuit<
 
 #[cfg(test)]
 pub mod tests {
+    use ark_serialize::CanonicalSerialize;
+    use ark_serialize::Compress;
     use std::collections::BTreeMap;
 
     use ark_crypto_primitives::crh::CRHScheme;
     use ark_crypto_primitives::crh::poseidon::CRH;
     use ark_crypto_primitives::merkle_tree::MerkleTree;
+    use ark_crypto_primitives::merkle_tree::Path;
+    use ark_crypto_primitives::merkle_tree::constraints::PathVar;
     use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
     use ark_ff::UniformRand;
     use ark_r1cs_std::alloc::AllocVar;
     use ark_r1cs_std::alloc::AllocationMode;
+    use ark_r1cs_std::fields::fp::FpVar;
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::rand::RngCore;
     use ark_std::test_rng;
 
     use crate::Nullifier;
+    use crate::NullifierVar;
+    use crate::UTXOProof;
+    use crate::UTXOProofVar;
     use crate::datastructures::block::Block;
     use crate::datastructures::block::BlockHash;
     use crate::datastructures::blocktree::BlockTree;
     use crate::datastructures::blocktree::BlockTreeConfig;
+    use crate::datastructures::keypair::constraints::PublicKeyVar;
     use crate::datastructures::shieldedtx::ShieldedTransaction;
     use crate::datastructures::shieldedtx::ShieldedTransactionConfig;
+    use crate::datastructures::shieldedtx::constraints::ShieldedTransactionConfigGadget;
+    use crate::datastructures::shieldedtx::constraints::ShieldedTransactionVar;
     use crate::datastructures::signerlist::SignerTree;
     use crate::datastructures::transparenttx::TransparentTransaction;
+    use crate::datastructures::transparenttx::constraints::TransparentTransactionVar;
     use crate::datastructures::txtree::TransactionTree;
     use crate::datastructures::user::User;
     use crate::datastructures::utxo::UTXO;
+    use crate::datastructures::utxo::constraints::UTXOVar;
+    use crate::primitives::sparsemt::MerkleSparseTree;
+    use crate::tx_validity_circuit;
     use crate::{
         config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
         datastructures::{
@@ -628,24 +653,27 @@ pub mod tests {
             withdrawals: vec![],
         };
 
-        let block_hash = BlockCRH::evaluate(&poseidon_config, prev_block).unwrap();
+        let block_hash = BlockCRH::evaluate(&poseidon_config, prev_block.clone()).unwrap();
 
         // block tree stored on the l1
         let block_tree = make_block_tree(&poseidon_config, &vec![block_hash]);
 
         // 3. alice provides bob with the utxo, a proof of inclusion of the tx and a proof of inclusion for
         //    the utxo, which is the last leaf of the shielded transaction tree
-        let bob_utxo = alice_to_bob_tx.outputs[3];
-        let shielded_tx_utxos_proofs = alice_to_bob_shielded_tx_tree.generate_proof(7).unwrap();
-        let shielded_tx_inclusion_proof = transaction_tree.generate_membership_proof(1).unwrap();
+        let alice_to_bob_utxo = alice_to_bob_tx.outputs[3];
+        let alice_to_bob_utxo_nullifier =
+            Nullifier::new(&poseidon_config, bob_sk, 7, 1, 1).unwrap();
+        let alice_to_bob_utxo_proof = alice_to_bob_shielded_tx_tree.generate_proof(7).unwrap();
+        let alice_shielded_tx_inclusion_proof =
+            transaction_tree.generate_membership_proof(1).unwrap();
 
         // 4. signer and block inclusion proof are retrieved by bob from the l1
-        let signer_inclusion_proof = signer_tree.generate_membership_proof(1).unwrap();
+        let alice_signer_inclusion_proof = signer_tree.generate_membership_proof(1).unwrap();
         let block_inclusion_proof = block_tree.generate_membership_proof(0).unwrap();
 
         let bob_to_alice_tx = TransparentTransaction {
             inputs: [
-                bob_utxo,
+                alice_to_bob_utxo,
                 UTXO::new(bob.keypair.pk, 0, rng.next_u64() as u128),
                 UTXO::new(bob.keypair.pk, 0, rng.next_u64() as u128),
                 UTXO::new(bob.keypair.pk, 0, rng.next_u64() as u128),
@@ -670,14 +698,59 @@ pub mod tests {
             &poseidon_config, &poseidon_config, utxos.clone()
         )
         .unwrap();
+        let bob_to_alice_shielded_tx_output_proofs = (4..8)
+            .map(|i| bob_to_alice_shielded_tx_tree.generate_proof(i).unwrap())
+            .collect::<Vec<Path<_>>>();
 
         let bob_to_alice_shielded_tx = ShieldedTransaction {
             from: bob.keypair.pk,
             shielded_tx: bob_to_alice_shielded_tx_tree.root(),
         };
 
+        let utxo_from_alice_proof = UTXOProof::new(
+            prev_block,
+            alice_to_bob_shielded_tx,
+            Fr::from(1),
+            alice_to_bob_utxo,
+            Fr::from(7),
+            alice_to_bob_utxo_proof,
+            alice_signer_inclusion_proof,
+            alice_shielded_tx_inclusion_proof,
+            block_tree.root(),
+            block_inclusion_proof,
+            alice_to_bob_utxo_nullifier,
+        );
+        let mut bob_input_utxos_proofs = vec![UTXOProof::default(); 4];
+        bob_input_utxos_proofs[0] = utxo_from_alice_proof;
+
         // initialize cs
         let cs = ConstraintSystem::<Fr>::new_ref();
+        let null_sk_var = FpVar::new_witness(cs.clone(), || Ok(bob_sk)).unwrap();
+        let null_pk_var = FpVar::new_input(cs.clone(), || Ok(bob_pk)).unwrap();
+        let bob_pk_var = PublicKeyVar::new_input(cs.clone(), || Ok(bob.keypair.pk)).unwrap();
+        let bob_to_alice_transparent_tx_var =
+            TransparentTransactionVar::new_witness(cs.clone(), || Ok(bob_to_alice_tx.clone()))
+                .unwrap();
+        let bob_to_alice_shielded_tx_var =
+            ShieldedTransactionVar::new_input(cs.clone(), || Ok(bob_to_alice_shielded_tx)).unwrap();
+        let bob_to_alice_shielded_tx_outputs_var =
+            Vec::<UTXOVar<_, GrumpkinProjectiveVar>>::new_witness(cs.clone(), || {
+                Ok(bob_to_alice_tx.outputs.clone())
+            })
+            .unwrap();
+        let bob_to_alice_shielded_tx_output_proofs_var = Vec::<
+            PathVar<_, _, ShieldedTransactionConfigGadget<_, GrumpkinProjectiveVar>>,
+        >::new_witness(cs.clone(), || {
+            Ok(bob_to_alice_shielded_tx_output_proofs)
+        })
+        .unwrap();
+        let bob_input_utxo_proofs_var =
+            Vec::<UTXOProofVar<_, GrumpkinProjectiveVar, _, _, _, _>>::new_witness(
+                cs.clone(),
+                || Ok(bob_input_utxos_proofs.clone()),
+            )
+            .unwrap();
+
         let config_var =
             PlasmaBlindConfigVar::<
                 _,
@@ -689,7 +762,38 @@ pub mod tests {
             >::new_variable(cs.clone(), || Ok(config), AllocationMode::Constant)
             .unwrap();
 
+        tx_validity_circuit(
+            cs.clone(),
+            &null_sk_var,
+            &null_pk_var,
+            bob_pk_var,
+            &bob_to_alice_transparent_tx_var,
+            &bob_to_alice_shielded_tx_var,
+            &bob_to_alice_shielded_tx_outputs_var,
+            &bob_to_alice_shielded_tx_output_proofs_var,
+            &bob_input_utxo_proofs_var,
+            &config_var,
+        )
+        .unwrap();
         cs.finalize();
+        assert!(cs.is_satisfied().unwrap());
+
         println!("n constraints: {}", cs.num_constraints());
+
+        let wtns = cs.witness_assignment().unwrap();
+
+        println!("n wtns elements: {}", wtns.len());
+        println!(
+            "Fr serialized_size: {}",
+            Fr::from(1).serialized_size(Compress::Yes)
+        );
+        println!(
+            "wtns size uncompressed: {}",
+            wtns.serialized_size(Compress::No)
+        );
+        println!(
+            "wtns size compressed: {}",
+            wtns.serialized_size(Compress::Yes)
+        );
     }
 }

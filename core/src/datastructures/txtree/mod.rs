@@ -22,7 +22,7 @@ pub mod constraints;
 
 pub type TransactionTree<P> = MerkleSparseTree<P>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TransactionTreeConfig<C: CurveGroup> {
     _c: PhantomData<C>,
 }

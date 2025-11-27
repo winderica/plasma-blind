@@ -22,7 +22,7 @@ pub mod constraints;
 pub type SignerList = Vec<u32>;
 pub type SignerTree<P> = MerkleSparseTree<P>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SignerTreeConfig<C: CurveGroup> {
     _c: PhantomData<C>,
 }
