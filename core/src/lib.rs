@@ -628,12 +628,12 @@ pub mod tests {
         let alice_to_bob_tx_index = 1;
         let block_height = 0;
         // NOTE: utxo will be placed at the latest position in the transaction
-        let alice_to_bob_utxo_index = (TX_IO_SIZE as u8) - 1 as u8;
+        let alice_to_bob_utxo_index = (TX_IO_SIZE * 2) - 1;
         let alice_to_bob_utxo = UTXO::new(
             bob.keypair.pk,
             10,
             rng.next_u64() as u128,
-            alice_to_bob_utxo_index,
+            alice_to_bob_utxo_index as u8,
             Some(alice_to_bob_tx_index),
             Some(block_height),
         );
@@ -679,7 +679,7 @@ pub mod tests {
         let alice_to_bob_utxo_nullifier = Nullifier::new(
             &poseidon_config,
             bob_sk,
-            alice_to_bob_utxo_index,
+            alice_to_bob_utxo_index as u8,
             alice_to_bob_tx_index as usize,
             block_height as usize,
         )
@@ -732,7 +732,7 @@ pub mod tests {
             alice_to_bob_shielded_tx,
             Fr::from(alice_to_bob_tx_index),
             alice_to_bob_utxo,
-            Fr::from(alice_to_bob_utxo_index),
+            Fr::from(alice_to_bob_utxo_index as u8),
             alice_to_bob_utxo_proof,
             alice_signer_inclusion_proof,
             alice_shielded_tx_inclusion_proof,
