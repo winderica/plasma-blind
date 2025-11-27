@@ -19,7 +19,12 @@ pub struct UTXO<C: CurveGroup> {
     pub amount: u64,
     pub pk: PublicKey<C>,
     pub salt: u128,
+    pub index: u8,
     pub is_dummy: bool,
+    pub tx_index: Option<u64>, // indicates the index of the transaction in the
+    // transaction tree at the time this
+    // utxo has been created
+    pub block_height: Option<u64>, // indicates the block at which this utxo was created
 }
 
 impl<C: CurveGroup> Debug for UTXO<C> {
@@ -33,12 +38,22 @@ impl<C: CurveGroup> Debug for UTXO<C> {
 }
 
 impl<C: CurveGroup> UTXO<C> {
-    pub fn new(pk: PublicKey<C>, amount: u64, salt: u128) -> Self {
+    pub fn new(
+        pk: PublicKey<C>,
+        amount: u64,
+        salt: u128,
+        index: u8,
+        tx_index: Option<u64>,
+        block_height: Option<u64>,
+    ) -> Self {
         UTXO {
             amount,
             pk,
             salt,
+            index,
             is_dummy: false,
+            tx_index,
+            block_height,
         }
     }
 
@@ -47,7 +62,10 @@ impl<C: CurveGroup> UTXO<C> {
             amount: 0,
             pk: PublicKey::default(),
             salt: 0,
+            index: 0,
             is_dummy: true,
+            tx_index: None,
+            block_height: None,
         }
     }
 }

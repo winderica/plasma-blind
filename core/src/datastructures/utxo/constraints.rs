@@ -26,7 +26,9 @@ pub struct UTXOVar<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar
     pub amount: FpVar<C::BaseField>,
     pub pk: PublicKeyVar<C, CVar>,
     pub salt: FpVar<C::BaseField>,
+    pub index: FpVar<C::BaseField>,
     pub is_dummy: Boolean<C::BaseField>,
+    pub tx_index: FpVar<C::BaseField>,
 }
 
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
@@ -43,13 +45,22 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
             salt,
             amount,
             pk,
+            index,
             is_dummy,
+            tx_index,
+            block_height,
         } = f.borrow();
         Ok(Self {
             amount: FpVar::new_variable(cs.clone(), || Ok(C::BaseField::from(*amount)), mode)?,
             pk: PublicKeyVar::new_variable(cs.clone(), || Ok(*pk), mode)?,
             salt: FpVar::new_variable(cs.clone(), || Ok(C::BaseField::from(*salt)), mode)?,
-            is_dummy: Boolean::new_variable(cs, || Ok(is_dummy), mode)?,
+            index: FpVar::new_variable(cs.clone(), || Ok(C::BaseField::from(*index)), mode)?,
+            is_dummy: Boolean::new_variable(cs.clone(), || Ok(is_dummy), mode)?,
+            tx_index: FpVar::new_variable(
+                cs.clone(),
+                || Ok(C::BaseField::from(tx_index.unwrap_or(0))),
+                mode,
+            )?,
         })
     }
 }

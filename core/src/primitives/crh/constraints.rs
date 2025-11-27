@@ -124,7 +124,12 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
         let bool_as_fp: FpVar<C::BaseField> = input.is_dummy.clone().into();
         let pk_point = input.pk.key.to_constraint_field()?;
-        let mut input = Vec::from([input.amount.clone(), bool_as_fp, input.salt.clone()]);
+        let mut input = Vec::from([
+            input.amount.clone(),
+            bool_as_fp,
+            input.salt.clone(),
+            input.index.clone(),
+        ]);
         for p in pk_point {
             input.push(p);
         }

@@ -170,6 +170,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for UTXOCRH<C> {
             C::BaseField::from(utxo.amount),
             C::BaseField::from(utxo.is_dummy),
             C::BaseField::from(utxo.salt),
+            C::BaseField::from(utxo.index),
             x,
             y,
             iszero,

@@ -11,7 +11,6 @@ use ark_crypto_primitives::{
 };
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_ff::Zero;
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     eq::EqGadget,
@@ -34,7 +33,10 @@ use core::{
     },
     primitives::{
         accumulator::constraints::Accumulator,
-        crh::constraints::{BlockVarCRH, PublicKeyVarCRH},
+        crh::{
+            constraints::{BlockVarCRH, PublicKeyVarCRH},
+            BlockCRH, PublicKeyCRH,
+        },
         sparsemt::{
             constraints::{MerkleSparseTreePathVar, SparseConfigGadget},
             SparseConfig,
@@ -265,11 +267,17 @@ impl<
         );
 
         // ensure correct pk is provided in aux inputs
-        let computed_pk_hash = PublicKeyVarCRH::evaluate(&self.pp, &aux.pk)?;
+        let computed_pk_hash =
+            <PublicKeyVarCRH<C, CVar> as CRHSchemeGadget<PublicKeyCRH<C>, _>>::evaluate(
+                &self.pp, &aux.pk,
+            )?;
         computed_pk_hash.enforce_equal(&pk_hash)?;
 
         // compute block hash and update accumulator value
-        let next_block_hash = BlockVarCRH::evaluate(&self.pp, &aux.block)?;
+        let next_block_hash = <BlockVarCRH<_, _, TCG, _, SCG> as CRHSchemeGadget<
+            BlockCRH<_>,
+            _,
+        >>::evaluate(&self.pp, &aux.block)?;
         let next_acc = A::update(&self.acc_pp, &acc, &block_hash)?;
 
         // ensure the current processed block number is equal or greater than the previous block
@@ -391,6 +399,7 @@ mod tests {
     use crate::UserAux;
 
     use super::{UserAuxVar, UserCircuit};
+
     pub fn make_signer_tree(
         pp: &PoseidonConfig<Fr>,
         users: &Vec<User<Projective>>,
@@ -401,6 +410,7 @@ mod tests {
         }
         SignerTree::<SignerTreeConfig<Projective>>::new(pp, pp, &signer_leaves).unwrap()
     }
+
     #[test]
     pub fn test_user_circuit() {
         let pp = poseidon_canonical_config::<Fr>();
@@ -410,16 +420,23 @@ mod tests {
         let receiver = User::new(&mut rng, 2);
         let tx = TransparentTransaction {
             inputs: [
-                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128),
-                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128),
-                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128),
-                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128),
+                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128, 0, None, None),
+                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128, 1, None, None),
+                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128, 2, None, None),
+                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128, 3, None, None),
             ],
             outputs: [
-                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128),
-                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128),
-                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128),
-                UTXO::new(receiver.keypair.pk, 10, rng.next_u64() as u128),
+                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128, 4, None, None),
+                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128, 5, None, None),
+                UTXO::new(sender.keypair.pk, 10, rng.next_u64() as u128, 6, None, None),
+                UTXO::new(
+                    receiver.keypair.pk,
+                    10,
+                    rng.next_u64() as u128,
+                    7,
+                    None,
+                    None,
+                ),
             ],
         };
 
