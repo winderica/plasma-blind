@@ -6,6 +6,7 @@ use ark_crypto_primitives::{
 };
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
+use ark_std::iterable::Iterable;
 
 use crate::Nullifier;
 
@@ -17,6 +18,17 @@ pub mod constraints;
 pub struct TransparentTransaction<C: CurveGroup> {
     pub inputs: [UTXO<C>; TX_IO_SIZE],
     pub outputs: [UTXO<C>; TX_IO_SIZE],
+}
+
+impl<C: CurveGroup> Default for TransparentTransaction<C> {
+    fn default() -> Self {
+        let inputs = [UTXO::default(); TX_IO_SIZE];
+        let mut outputs = [UTXO::default(); TX_IO_SIZE];
+        for (i, utxo) in outputs.iter_mut().enumerate() {
+            utxo.index = (TX_IO_SIZE + i) as u8;
+        }
+        Self { inputs, outputs }
+    }
 }
 
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>> TransparentTransaction<C> {
@@ -33,8 +45,8 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> TransparentTransaction<C> {
         output
     }
 
-    pub fn utxos(&self) -> Chain<Iter<UTXO<C>>, Iter<UTXO<C>>> {
-        self.inputs.iter().chain(&self.outputs)
+    pub fn utxos(&self) -> Vec<UTXO<C>> {
+        [self.inputs, self.outputs].concat()
     }
 
     pub fn nullifiers(

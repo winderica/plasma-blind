@@ -1,5 +1,6 @@
 pub mod config;
 use ark_r1cs_std::{fields::FieldVar, prelude::Boolean};
+use ark_std::One;
 pub mod datastructures;
 pub mod primitives;
 
@@ -31,6 +32,7 @@ use ark_r1cs_std::{
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 use config::{PlasmaBlindConfig, PlasmaBlindConfigVar};
 use datastructures::{
+    TX_IO_SIZE,
     block::{Block, constraints::BlockVar},
     blocktree::{BlockTreeConfig, constraints::BlockTreeConfigGadget},
     keypair::constraints::PublicKeyVar,
@@ -448,10 +450,17 @@ pub fn tx_validity_circuit<
         input_utxo_proof.is_valid(null_sk, pk.clone(), &plasma_blind_config)?;
     }
 
-    // TODO: ensure that the output utxo indexes start at TX_IO_SIZE/2 and are strictly increasing
+    // initialize variables to ensure that output utxos have a strictly increasing index starting
+    // at TX_IO_SIZE
+    let one = FpVar::new_constant(cs.clone(), C::BaseField::one())?;
+    let mut index_output_utxo =
+        FpVar::new_constant(cs.clone(), C::BaseField::from((TX_IO_SIZE) as u64))?;
+
     for (shielded_tx_inclusion_proof, output_utxo) in
         shielded_tx_outputs_proofs.iter().zip(shielded_tx_outputs)
     {
+        // ensure that utxo indexes are correct
+        output_utxo.index.enforce_equal(&index_output_utxo)?;
         let is_in_tx = shielded_tx_inclusion_proof.verify_membership(
             &plasma_blind_config.shielded_tx_leaf_config,
             &plasma_blind_config.shielded_tx_two_to_one_config,
@@ -460,6 +469,7 @@ pub fn tx_validity_circuit<
         )?;
 
         is_in_tx.enforce_equal(&Boolean::Constant(true))?;
+        index_output_utxo += one.clone();
     }
 
     Ok(())
@@ -469,7 +479,6 @@ pub fn tx_validity_circuit<
 pub mod tests {
     use ark_crypto_primitives::crh::TwoToOneCRHScheme;
     use ark_crypto_primitives::crh::poseidon::TwoToOneCRH;
-    use ark_crypto_primitives::merkle_tree::Config;
     use ark_crypto_primitives::sponge::Absorb;
     use ark_ff::PrimeField;
     use ark_serialize::CanonicalSerialize;
@@ -478,7 +487,6 @@ pub mod tests {
 
     use ark_crypto_primitives::crh::CRHScheme;
     use ark_crypto_primitives::crh::poseidon::CRH;
-    use ark_crypto_primitives::merkle_tree::MerkleTree;
     use ark_crypto_primitives::merkle_tree::Path;
     use ark_crypto_primitives::merkle_tree::constraints::PathVar;
     use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
@@ -487,43 +495,34 @@ pub mod tests {
     use ark_r1cs_std::alloc::AllocationMode;
     use ark_r1cs_std::fields::fp::FpVar;
     use ark_relations::gr1cs::ConstraintSystem;
-    use ark_std::rand::RngCore;
     use ark_std::test_rng;
 
-    use crate::Nullifier;
-    use crate::NullifierVar;
-    use crate::UTXOProof;
-    use crate::UTXOProofVar;
-    use crate::datastructures::TX_IO_SIZE;
-    use crate::datastructures::block::Block;
-    use crate::datastructures::block::BlockHash;
-    use crate::datastructures::blocktree::BlockTree;
-    use crate::datastructures::blocktree::BlockTreeConfig;
-    use crate::datastructures::keypair::constraints::PublicKeyVar;
-    use crate::datastructures::shieldedtx::ShieldedTransaction;
-    use crate::datastructures::shieldedtx::ShieldedTransactionConfig;
-    use crate::datastructures::shieldedtx::constraints::ShieldedTransactionConfigGadget;
-    use crate::datastructures::shieldedtx::constraints::ShieldedTransactionVar;
-    use crate::datastructures::signerlist::SignerTree;
-    use crate::datastructures::transparenttx::TransparentTransaction;
-    use crate::datastructures::transparenttx::constraints::TransparentTransactionVar;
-    use crate::datastructures::txtree::TransactionTree;
-    use crate::datastructures::user::User;
-    use crate::datastructures::utxo::UTXO;
-    use crate::datastructures::utxo::constraints::UTXOVar;
-    use crate::primitives::sparsemt::MerkleSparseTree;
-    use crate::primitives::sparsemt::SparseConfig;
-    use crate::tx_validity_circuit;
     use crate::{
+        Nullifier, UTXOProof, UTXOProofVar,
         config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
         datastructures::{
+            TX_IO_SIZE,
+            block::{Block, BlockHash},
+            blocktree::{BlockTree, BlockTreeConfig},
+            keypair::constraints::PublicKeyVar,
+            shieldedtx::{
+                ShieldedTransaction,
+                constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
+            },
             signerlist::{SignerTreeConfig, constraints::SignerTreeConfigGadget},
+            transparenttx::{TransparentTransaction, constraints::TransparentTransactionVar},
             txtree::{TransactionTreeConfig, constraints::TransactionTreeConfigGadget},
+            user::User,
+            utxo::constraints::UTXOVar,
         },
-        primitives::crh::{
-            BlockCRH, BlockTreeCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH,
-            utils::initialize_poseidon_config,
+        primitives::{
+            crh::{
+                BlockCRH, BlockTreeCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH,
+                utils::initialize_poseidon_config,
+            },
+            sparsemt::{MerkleSparseTree, SparseConfig},
         },
+        tx_validity_circuit,
     };
     use ark_bn254::Fr;
     use ark_grumpkin::Projective as GrumpkinProjective;
@@ -600,35 +599,18 @@ pub mod tests {
         let bob_pk = CRH::evaluate(&poseidon_config, vec![bob_sk]).unwrap();
 
         // 2. prepare alice's transaction
-        // NOTE: we put some random indexes for the input utxos, because this is not what's going
-        // in the tx validity circuit
-        let alice_input_utxos = [UTXO::new(
-            alice.keypair.pk,
-            10,
-            rng.next_u64() as u128,
-            0,
-            Some(1),
-            Some(42),
-        ); 4];
-        let mut alice_output_utxos = TransparentTransaction::get_default_output_utxos();
-
-        // NOTE: tx_index and block_height get assigned by the block builder and the L1
+        // NOTE: tx_index and block_height get assigned by the aggregator and the L1
         // respectively
         let alice_to_bob_tx_index = 1;
         let block_height = 0;
 
-        // NOTE: utxo will be placed at the latest position in the transaction
-        let alice_to_bob_utxo_index = (TX_IO_SIZE * 2) - 1;
-        let alice_to_bob_utxo = UTXO::new(
-            bob.keypair.pk,
-            10,
-            rng.next_u64() as u128,
-            alice_to_bob_utxo_index as u8,
-            Some(alice_to_bob_tx_index),
-            Some(block_height),
-        );
-        alice_output_utxos[3] = alice_to_bob_utxo;
-        let alice_to_bob_tx = TransparentTransaction::new(alice_input_utxos, alice_output_utxos);
+        // NOTE: alice to bob utxo will be placed at the latest position in the transaction
+        let mut alice_to_bob_tx = TransparentTransaction::default();
+        alice_to_bob_tx.outputs[TX_IO_SIZE - 1].pk = bob.keypair.pk;
+        alice_to_bob_tx.outputs[TX_IO_SIZE - 1].amount = 10;
+        alice_to_bob_tx.outputs[TX_IO_SIZE - 1].tx_index = Some(alice_to_bob_tx_index);
+        alice_to_bob_tx.outputs[TX_IO_SIZE - 1].block_height = Some(block_height);
+
         let (alice_to_bob_shielded_tx, alice_to_bob_shielded_tx_tree) = ShieldedTransaction::new(
             &poseidon_config,
             &poseidon_config,
@@ -643,12 +625,14 @@ pub mod tests {
         // 3. build block where alice's transaction is included
         let mut transactions_in_block = [ShieldedTransaction::default(); 8];
         transactions_in_block[alice_to_bob_tx_index as usize] = alice_to_bob_shielded_tx.clone();
+
+        // NOTE: transactions and signer tree are built by the aggregator
         let transactions_tree = make_sparse_tree(
             &poseidon_config,
             &poseidon_config,
             transactions_in_block.into_iter(),
         );
-        // NOTE: alice's keypair will be stored at index 0 in the signer tree
+        // alice's keypair will be stored at index 0 in the signer tree
         let signer_tree = make_sparse_tree(
             &poseidon_config,
             &poseidon_config,
@@ -664,21 +648,15 @@ pub mod tests {
             withdrawals: vec![],
         };
 
+        // NOTE: block tree stored on the l1
         let block_hash = BlockCRH::evaluate(&poseidon_config, prev_block.clone()).unwrap();
-
-        // block tree stored on the l1
         let block_tree = make_sparse_tree(&(), &poseidon_config, [block_hash].into_iter());
 
         // 3. alice provides bob with the utxo, a proof of inclusion of the tx and a proof of inclusion for
-        //    the utxo, which is the last leaf of the shielded transaction tree
-        let alice_to_bob_utxo_nullifier = Nullifier::new(
-            &poseidon_config,
-            bob_sk,
-            alice_to_bob_utxo_index as u8,
-            alice_to_bob_tx_index as usize,
-            block_height as usize,
-        )
-        .unwrap();
+        //    the utxo, which is the last leaf of the shielded transaction tree.
+        //    NOTE: this is happening OOB
+        let alice_to_bob_utxo = alice_to_bob_tx.outputs[TX_IO_SIZE - 1];
+        let alice_to_bob_utxo_index = alice_to_bob_utxo.index;
         let alice_to_bob_utxo_proof = alice_to_bob_shielded_tx_tree
             .generate_proof(alice_to_bob_utxo_index as usize)
             .unwrap();
@@ -690,16 +668,14 @@ pub mod tests {
         let alice_signer_inclusion_proof = signer_tree.generate_membership_proof(0).unwrap();
         let block_inclusion_proof = block_tree.generate_membership_proof(0).unwrap();
 
-        // 5. prepare bob to alice transaction utxos
-        let mut bob_to_alice_input_utxos = [UTXO::default(); 4];
-        let mut bob_to_alice_output_utxos = [UTXO::default(); 4];
-        bob_to_alice_input_utxos[0] = alice_to_bob_utxo;
-        bob_to_alice_output_utxos[3] =
-            UTXO::new(alice.keypair.pk, 10, rng.next_u64() as u128, 4, None, None);
+        // 5. prepare bob to alice transaction utxos. first utxo input is alice's utxo to bob
+        // the last utxo output is bob's utxo to alice
+        let mut bob_to_alice_tx = TransparentTransaction::default();
+        bob_to_alice_tx.inputs[0] = alice_to_bob_utxo;
+        bob_to_alice_tx.outputs[TX_IO_SIZE - 1].pk = alice.keypair.pk;
+        bob_to_alice_tx.outputs[TX_IO_SIZE - 1].amount = 10;
 
         // 6. prepare bob to alice shielded transaction
-        let bob_to_alice_tx =
-            TransparentTransaction::new(bob_to_alice_input_utxos, bob_to_alice_output_utxos);
         let (bob_to_alice_shielded_tx, bob_to_alice_shielded_tx_tree) = ShieldedTransaction::new(
             &poseidon_config,
             &poseidon_config,
@@ -713,6 +689,15 @@ pub mod tests {
             .collect::<Vec<Path<_>>>();
 
         // 7. prepare proof for the input utxo from alice
+        let alice_to_bob_utxo_nullifier = Nullifier::new(
+            &poseidon_config,
+            bob_sk,
+            alice_to_bob_utxo_index as u8,
+            alice_to_bob_tx_index as usize,
+            block_height as usize,
+        )
+        .unwrap();
+
         let utxo_from_alice_proof = UTXOProof::new(
             prev_block,
             alice_to_bob_shielded_tx,
