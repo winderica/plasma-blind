@@ -21,16 +21,10 @@ use ark_crypto_primitives::{
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ec::CurveGroup;
-use ark_ff::Field;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{
-    alloc::{AllocVar, AllocationMode},
-    eq::EqGadget,
-    fields::fp::FpVar,
-    groups::CurveVar,
-};
+use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget, fields::fp::FpVar, groups::CurveVar};
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
-use config::{PlasmaBlindConfig, PlasmaBlindConfigVar};
+use config::PlasmaBlindConfigVar;
 use datastructures::{
     TX_IO_SIZE,
     block::{Block, constraints::BlockVar},
@@ -350,8 +344,7 @@ impl<
         )?;
 
         // 4. block is contained within the block tree
-        let block_hash =
-            BlockVarCRH::evaluate(&plasma_blind_config.block_hash_config, &self.block)?;
+        let block_hash = BlockVarCRH::evaluate(&plasma_blind_config.block_crh_config, &self.block)?;
 
         self.block_inclusion_proof.conditionally_check_membership(
             &plasma_blind_config.block_tree_leaf_config,
@@ -497,13 +490,13 @@ pub mod tests {
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::test_rng;
 
+    use crate::primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config;
     use crate::{
         Nullifier, UTXOProof, UTXOProofVar,
         config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
         datastructures::{
             TX_IO_SIZE,
-            block::{Block, BlockHash},
-            blocktree::{BlockTree, BlockTreeConfig},
+            block::Block,
             keypair::constraints::PublicKeyVar,
             shieldedtx::{
                 ShieldedTransaction,
@@ -546,19 +539,23 @@ pub mod tests {
 
         // initialize our plasma blind config
         // poseidon crh only for now, should be configurable in the future
+        let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
         let poseidon_config = initialize_poseidon_config::<Fr>();
+
         let shielded_tx_leaf_config =
             <UTXOCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
-        let shielded_tx_two_to_one_config = initialize_poseidon_config::<Fr>();
         let tx_tree_leaf_config =
             <ShieldedTransactionCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
-        let tx_tree_two_to_one_config = initialize_poseidon_config::<Fr>();
         let signer_tree_leaf_config =
             <PublicKeyCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
-        let signer_tree_two_to_one_config = initialize_poseidon_config::<Fr>();
-        let block_hash_config = <BlockCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
         let block_tree_leaf_config = <BlockTreeCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
-        let block_tree_two_to_one_config = initialize_poseidon_config::<Fr>();
+
+        let tx_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+        let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
+        let signer_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+        let block_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+
+        let block_crh_config = <BlockCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
 
         let config = PlasmaBlindConfig::<
             GrumpkinProjective,
@@ -572,7 +569,7 @@ pub mod tests {
             tx_tree_two_to_one_config,
             signer_tree_leaf_config,
             signer_tree_two_to_one_config,
-            block_hash_config,
+            block_crh_config,
             block_tree_leaf_config,
             block_tree_two_to_one_config,
         );
@@ -583,7 +580,7 @@ pub mod tests {
         let alice_sk = Fr::rand(&mut rng);
         let bob = User::<GrumpkinProjective>::new(&mut rng, 2);
         let bob_sk = Fr::rand(&mut rng);
-        let bob_pk = CRH::evaluate(&poseidon_config, vec![bob_sk]).unwrap();
+        let bob_pk = CRH::evaluate(&config.poseidon_config, vec![bob_sk]).unwrap();
 
         // 2. prepare alice's transaction
         // NOTE: tx_index and block_height get assigned by the aggregator and the L1
@@ -599,14 +596,14 @@ pub mod tests {
         alice_to_bob_tx.outputs[TX_IO_SIZE - 1].block_height = Some(block_height);
 
         let (alice_to_bob_shielded_tx, alice_to_bob_shielded_tx_tree) = ShieldedTransaction::new(
-            &poseidon_config,
-            &poseidon_config,
+            &config.shielded_tx_leaf_config,
+            &config.shielded_tx_two_to_one_config,
             alice.keypair.pk,
             &alice_to_bob_tx,
         )
         .unwrap();
         let alice_to_bob_tx_nullifiers = alice_to_bob_tx
-            .nullifiers(&poseidon_config, &alice_sk)
+            .nullifiers(&config.poseidon_config, &alice_sk)
             .unwrap();
 
         // 3. build block where alice's transaction is included
@@ -615,14 +612,14 @@ pub mod tests {
 
         // NOTE: transactions and signer tree are built by the aggregator
         let transactions_tree = make_sparse_tree(
-            &poseidon_config,
-            &poseidon_config,
+            &config.tx_tree_leaf_config,
+            &config.tx_tree_two_to_one_config,
             transactions_in_block.into_iter(),
         );
         // alice's keypair will be stored at index 0 in the signer tree
         let signer_tree = make_sparse_tree(
-            &poseidon_config,
-            &poseidon_config,
+            &config.signer_tree_leaf_config,
+            &config.signer_tree_two_to_one_config,
             [alice.keypair.pk.clone()].into_iter(),
         );
         let prev_block = Block {
@@ -636,8 +633,12 @@ pub mod tests {
         };
 
         // NOTE: block tree stored on the l1
-        let block_hash = BlockCRH::evaluate(&poseidon_config, prev_block.clone()).unwrap();
-        let block_tree = make_sparse_tree(&(), &poseidon_config, [block_hash].into_iter());
+        let block_hash = BlockCRH::evaluate(&config.block_crh_config, prev_block.clone()).unwrap();
+        let block_tree = make_sparse_tree(
+            &(),
+            &config.block_tree_two_to_one_config,
+            [block_hash].into_iter(),
+        );
 
         // 3. alice provides bob with the utxo, a proof of inclusion of the tx and a proof of inclusion for
         //    the utxo, which is the last leaf of the shielded transaction tree.
@@ -664,8 +665,8 @@ pub mod tests {
 
         // 6. prepare bob to alice shielded transaction
         let (bob_to_alice_shielded_tx, bob_to_alice_shielded_tx_tree) = ShieldedTransaction::new(
-            &poseidon_config,
-            &poseidon_config,
+            &config.shielded_tx_leaf_config,
+            &config.shielded_tx_two_to_one_config,
             bob.keypair.pk,
             &bob_to_alice_tx,
         )
@@ -677,7 +678,7 @@ pub mod tests {
 
         // 7. prepare proof for the input utxo from alice
         let alice_to_bob_utxo_nullifier = Nullifier::new(
-            &poseidon_config,
+            &config.poseidon_config,
             bob_sk,
             alice_to_bob_utxo_index as u8,
             alice_to_bob_tx_index as usize,
@@ -686,6 +687,7 @@ pub mod tests {
         .unwrap();
 
         let mut bob_input_utxos_proofs = vec![UTXOProof::default(); 4];
+
         let utxo_from_alice_proof = UTXOProof::new(
             prev_block,
             alice_to_bob_shielded_tx,
@@ -757,6 +759,7 @@ pub mod tests {
             &config_var,
         )
         .unwrap();
+
         cs.finalize();
 
         assert!(cs.is_satisfied().unwrap());

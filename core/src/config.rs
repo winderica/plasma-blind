@@ -36,7 +36,7 @@ pub struct PlasmaBlindConfig<
     pub signer_tree_leaf_config: <<SC as Config>::LeafHash as CRHScheme>::Parameters, // crh config for signer tree
     pub signer_tree_two_to_one_config:
         <<SC as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for signer tree
-    pub block_hash_config: <BlockCRH<C::BaseField> as CRHScheme>::Parameters, // crh config for block hash
+    pub block_crh_config: <BlockCRH<C::BaseField> as CRHScheme>::Parameters, // crh config for block hash
     pub block_tree_leaf_config: <<BlockTreeConfig<C> as Config>::LeafHash as CRHScheme>::Parameters, // crh config for block tree
     pub block_tree_two_to_one_config:
         <<BlockTreeConfig<C> as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for block tree
@@ -59,7 +59,7 @@ impl<
         signer_tree_leaf_config: <<SC as Config>::LeafHash as CRHScheme>::Parameters, // crh config for signer tree
         signer_tree_two_to_one_config:
         <<SC as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for signer tree
-        block_hash_config: <BlockCRH<C::BaseField> as CRHScheme>::Parameters, // crh config for block hash
+        block_crh_config: <BlockCRH<C::BaseField> as CRHScheme>::Parameters, // crh config for block hash
         block_tree_leaf_config: <<BlockTreeConfig<C> as Config>::LeafHash as CRHScheme>::Parameters, // crh config for block tree
         block_tree_two_to_one_config:
         <<BlockTreeConfig<C> as Config>::TwoToOneHash as TwoToOneCRHScheme>::Parameters, // 2-to-1 config for block tree
@@ -72,7 +72,7 @@ impl<
             tx_tree_two_to_one_config,
             signer_tree_leaf_config,
             signer_tree_two_to_one_config,
-            block_hash_config,
+            block_crh_config,
             block_tree_leaf_config,
             block_tree_two_to_one_config,
         }
@@ -122,7 +122,7 @@ pub struct PlasmaBlindConfigVar<
             <SC as Config>::TwoToOneHash,
             C::BaseField,
         >>::ParametersVar, // 2-to-1 config for signer tree
-    pub block_hash_config: <BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
+    pub block_crh_config: <BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
         BlockCRH<C::BaseField>,
         C::BaseField,
     >>::ParametersVar, // crh config for block hash
@@ -225,11 +225,11 @@ impl<
                 || Ok(config.signer_tree_two_to_one_config.clone()),
                 mode,
             )?;
-        let block_hash_config = <BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
+        let block_crh_config = <BlockVarCRH<C, TC, TCG, SC, SCG> as CRHSchemeGadget<
             BlockCRH<C::BaseField>,
             C::BaseField,
         >>::ParametersVar::new_variable(
-            cs.clone(), || Ok(config.block_hash_config.clone()), mode
+            cs.clone(), || Ok(config.block_crh_config.clone()), mode
         )?;
         let block_tree_leaf_config = <<BlockTreeConfigGadget<C, CVar> as ConfigGadget<
             BlockTreeConfig<C>,
@@ -260,7 +260,7 @@ impl<
             tx_tree_two_to_one_config,
             signer_tree_leaf_config,
             signer_tree_two_to_one_config,
-            block_hash_config,
+            block_crh_config,
             block_tree_leaf_config,
             block_tree_two_to_one_config,
         })
