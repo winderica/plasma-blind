@@ -221,6 +221,7 @@ impl<
         let cs = cs.into();
         let res = f()?;
         let utxo_proof = res.borrow();
+
         let block = BlockVar::new_variable(cs.clone(), || Ok(utxo_proof.block.clone()), mode)?;
         let tx = <TCG as ConfigGadget<TC, C::BaseField>>::Leaf::new_variable(
             cs.clone(),
@@ -246,26 +247,21 @@ impl<
             mode,
         )?;
         let tx_index = FpVar::new_variable(cs.clone(), || Ok(utxo_proof.tx_index), mode)?;
-        // block tree root is public
-        let block_tree_root = <BlockTreeConfigGadget<C, CVar> as ConfigGadget<
-            BlockTreeConfig<C>,
-            C::BaseField,
-        >>::InnerDigest::new_variable(
-            cs.clone(),
-            || Ok(utxo_proof.block_tree_root),
-            AllocationMode::Input,
-        )?;
+
         let block_inclusion_proof = MerkleSparseTreePathVar::new_variable(
             cs.clone(),
             || Ok(utxo_proof.block_inclusion_proof.clone()),
             mode,
         )?;
-        // nullifiers are public
-        let nullifier = NullifierVar::new_variable(
-            cs.clone(),
-            || Ok(utxo_proof.nullifier.clone()),
-            AllocationMode::Input,
-        )?;
+
+        // note that nullifier and block tree root are public by default
+        let block_tree_root = <BlockTreeConfigGadget<C, CVar> as ConfigGadget<
+            BlockTreeConfig<C>,
+            C::BaseField,
+        >>::InnerDigest::new_input(cs.clone(), || {
+            Ok(utxo_proof.block_tree_root)
+        })?;
+        let nullifier = NullifierVar::new_input(cs.clone(), || Ok(utxo_proof.nullifier.clone()))?;
 
         Ok(UTXOProofVar {
             block,
@@ -477,20 +473,24 @@ pub fn tx_validity_circuit<
 
 #[cfg(test)]
 pub mod tests {
-    use ark_crypto_primitives::crh::TwoToOneCRHScheme;
-    use ark_crypto_primitives::crh::poseidon::TwoToOneCRH;
-    use ark_crypto_primitives::sponge::Absorb;
     use ark_ff::PrimeField;
     use ark_serialize::CanonicalSerialize;
     use ark_serialize::Compress;
     use std::collections::BTreeMap;
 
-    use ark_crypto_primitives::crh::CRHScheme;
-    use ark_crypto_primitives::crh::poseidon::CRH;
-    use ark_crypto_primitives::merkle_tree::Path;
-    use ark_crypto_primitives::merkle_tree::constraints::PathVar;
-    use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
+    use ark_crypto_primitives::{
+        crh::{
+            CRHScheme, TwoToOneCRHScheme,
+            poseidon::{CRH, TwoToOneCRH},
+        },
+        merkle_tree::{Path, constraints::PathVar},
+        sponge::Absorb,
+    };
+
+    use ark_bn254::Fr;
     use ark_ff::UniformRand;
+    use ark_grumpkin::Projective as GrumpkinProjective;
+    use ark_grumpkin::constraints::GVar as GrumpkinProjectiveVar;
     use ark_r1cs_std::alloc::AllocVar;
     use ark_r1cs_std::alloc::AllocationMode;
     use ark_r1cs_std::fields::fp::FpVar;
@@ -524,9 +524,6 @@ pub mod tests {
         },
         tx_validity_circuit,
     };
-    use ark_bn254::Fr;
-    use ark_grumpkin::Projective as GrumpkinProjective;
-    use ark_grumpkin::constraints::GVar as GrumpkinProjectiveVar;
 
     pub fn make_sparse_tree<
         F: PrimeField + Absorb,
@@ -543,16 +540,6 @@ pub mod tests {
         MerkleSparseTree::<MT>::new(leaf_hash_params, two_to_one_hash_params, &leaves).unwrap()
     }
 
-    pub fn make_block_tree(
-        pp: &PoseidonConfig<Fr>,
-        block_hashes: &Vec<BlockHash<Fr>>,
-    ) -> BlockTree<BlockTreeConfig<GrumpkinProjective>> {
-        let mut block_hash_leaves = BTreeMap::new();
-        for (i, hash) in block_hashes.iter().enumerate() {
-            block_hash_leaves.insert(i as u64, *hash);
-        }
-        BlockTree::<BlockTreeConfig<GrumpkinProjective>>::new(&(), &pp, &block_hash_leaves).unwrap()
-    }
     #[test]
     fn test_validity_circuit() {
         let mut rng = test_rng();
@@ -698,6 +685,7 @@ pub mod tests {
         )
         .unwrap();
 
+        let mut bob_input_utxos_proofs = vec![UTXOProof::default(); 4];
         let utxo_from_alice_proof = UTXOProof::new(
             prev_block,
             alice_to_bob_shielded_tx,
@@ -711,19 +699,22 @@ pub mod tests {
             block_inclusion_proof,
             alice_to_bob_utxo_nullifier,
         );
-        let mut bob_input_utxos_proofs = vec![UTXOProof::default(); 4];
         bob_input_utxos_proofs[0] = utxo_from_alice_proof;
 
         // 8. initialize cs and inputs
         let cs = ConstraintSystem::<Fr>::new_ref();
-        let null_sk_var = FpVar::new_witness(cs.clone(), || Ok(bob_sk)).unwrap();
+
+        // define public input values
         let null_pk_var = FpVar::new_input(cs.clone(), || Ok(bob_pk)).unwrap();
         let bob_pk_var = PublicKeyVar::new_input(cs.clone(), || Ok(bob.keypair.pk)).unwrap();
+        let bob_to_alice_shielded_tx_var =
+            ShieldedTransactionVar::new_input(cs.clone(), || Ok(bob_to_alice_shielded_tx)).unwrap();
+
+        // define input witness values
+        let null_sk_var = FpVar::new_witness(cs.clone(), || Ok(bob_sk)).unwrap();
         let bob_to_alice_transparent_tx_var =
             TransparentTransactionVar::new_witness(cs.clone(), || Ok(bob_to_alice_tx.clone()))
                 .unwrap();
-        let bob_to_alice_shielded_tx_var =
-            ShieldedTransactionVar::new_input(cs.clone(), || Ok(bob_to_alice_shielded_tx)).unwrap();
         let bob_to_alice_shielded_tx_outputs_var =
             Vec::<UTXOVar<_, GrumpkinProjectiveVar>>::new_witness(cs.clone(), || {
                 Ok(bob_to_alice_tx.outputs.clone())
@@ -767,17 +758,12 @@ pub mod tests {
         )
         .unwrap();
         cs.finalize();
+
         assert!(cs.is_satisfied().unwrap());
-
-        println!("n constraints: {}", cs.num_constraints());
-
         let wtns = cs.witness_assignment().unwrap();
 
+        println!("n constraints: {}", cs.num_constraints());
         println!("n wtns elements: {}", wtns.len());
-        println!(
-            "Fr serialized_size: {}",
-            Fr::from(1).serialized_size(Compress::Yes)
-        );
         println!(
             "wtns size uncompressed: {}",
             wtns.serialized_size(Compress::No)
