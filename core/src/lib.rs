@@ -544,17 +544,6 @@ pub mod tests {
         MerkleSparseTree::<MT>::new(leaf_hash_params, two_to_one_hash_params, &leaves).unwrap()
     }
 
-    pub fn make_signer_tree(
-        pp: &PoseidonConfig<Fr>,
-        users: &Vec<User<GrumpkinProjective>>,
-    ) -> SignerTree<SignerTreeConfig<GrumpkinProjective>> {
-        let mut signer_leaves = BTreeMap::new();
-        for user in users {
-            signer_leaves.insert(user.id as u64, user.keypair.pk);
-        }
-        SignerTree::<SignerTreeConfig<GrumpkinProjective>>::new(pp, pp, &signer_leaves).unwrap()
-    }
-
     pub fn make_block_tree(
         pp: &PoseidonConfig<Fr>,
         block_hashes: &Vec<BlockHash<Fr>>,
@@ -627,6 +616,7 @@ pub mod tests {
         // respectively
         let alice_to_bob_tx_index = 1;
         let block_height = 0;
+
         // NOTE: utxo will be placed at the latest position in the transaction
         let alice_to_bob_utxo_index = (TX_IO_SIZE * 2) - 1;
         let alice_to_bob_utxo = UTXO::new(
@@ -658,7 +648,12 @@ pub mod tests {
             &poseidon_config,
             transactions_in_block.into_iter(),
         );
-        let signer_tree = make_signer_tree(&poseidon_config, &vec![alice.clone()]);
+        // NOTE: alice's keypair will be stored at index 0 in the signer tree
+        let signer_tree = make_sparse_tree(
+            &poseidon_config,
+            &poseidon_config,
+            [alice.keypair.pk.clone()].into_iter(),
+        );
         let prev_block = Block {
             tx_tree_root: transactions_tree.root(),
             signer_tree_root: signer_tree.root(),
@@ -692,41 +687,32 @@ pub mod tests {
             .unwrap();
 
         // 4. signer and block inclusion proof are retrieved by bob from the l1
-        let alice_signer_inclusion_proof = signer_tree.generate_membership_proof(1).unwrap();
+        let alice_signer_inclusion_proof = signer_tree.generate_membership_proof(0).unwrap();
         let block_inclusion_proof = block_tree.generate_membership_proof(0).unwrap();
 
-        let bob_to_alice_tx = TransparentTransaction {
-            inputs: [
-                alice_to_bob_utxo,
-                UTXO::default(),
-                UTXO::default(),
-                UTXO::default(),
-            ],
-            outputs: [
-                UTXO::new(alice.keypair.pk, 10, rng.next_u64() as u128, 4, None, None),
-                UTXO::default(),
-                UTXO::default(),
-                UTXO::default(),
-            ],
-        };
+        // 5. prepare bob to alice transaction utxos
+        let mut bob_to_alice_input_utxos = [UTXO::default(); 4];
+        let mut bob_to_alice_output_utxos = [UTXO::default(); 4];
+        bob_to_alice_input_utxos[0] = alice_to_bob_utxo;
+        bob_to_alice_output_utxos[3] =
+            UTXO::new(alice.keypair.pk, 10, rng.next_u64() as u128, 4, None, None);
 
-        let utxos = bob_to_alice_tx.utxos();
-
-        let bob_to_alice_shielded_tx_tree = MerkleTree::<
-            ShieldedTransactionConfig<GrumpkinProjective>,
-        >::new(
-            &poseidon_config, &poseidon_config, utxos.clone()
+        // 6. prepare bob to alice shielded transaction
+        let bob_to_alice_tx =
+            TransparentTransaction::new(bob_to_alice_input_utxos, bob_to_alice_output_utxos);
+        let (bob_to_alice_shielded_tx, bob_to_alice_shielded_tx_tree) = ShieldedTransaction::new(
+            &poseidon_config,
+            &poseidon_config,
+            bob.keypair.pk,
+            &bob_to_alice_tx,
         )
         .unwrap();
+
         let bob_to_alice_shielded_tx_output_proofs = (4..8)
             .map(|i| bob_to_alice_shielded_tx_tree.generate_proof(i).unwrap())
             .collect::<Vec<Path<_>>>();
 
-        let bob_to_alice_shielded_tx = ShieldedTransaction {
-            from: bob.keypair.pk,
-            shielded_tx: bob_to_alice_shielded_tx_tree.root(),
-        };
-
+        // 7. prepare proof for the input utxo from alice
         let utxo_from_alice_proof = UTXOProof::new(
             prev_block,
             alice_to_bob_shielded_tx,
@@ -743,7 +729,7 @@ pub mod tests {
         let mut bob_input_utxos_proofs = vec![UTXOProof::default(); 4];
         bob_input_utxos_proofs[0] = utxo_from_alice_proof;
 
-        // initialize cs
+        // 8. initialize cs and inputs
         let cs = ConstraintSystem::<Fr>::new_ref();
         let null_sk_var = FpVar::new_witness(cs.clone(), || Ok(bob_sk)).unwrap();
         let null_pk_var = FpVar::new_input(cs.clone(), || Ok(bob_pk)).unwrap();
