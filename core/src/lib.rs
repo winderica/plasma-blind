@@ -1,8 +1,8 @@
 pub mod config;
-use ark_r1cs_std::{fields::FieldVar, prelude::Boolean};
-use ark_std::One;
 pub mod datastructures;
+pub mod errs;
 pub mod primitives;
+pub mod utils;
 
 use crate::datastructures::transparenttx::constraints::TransparentTransactionVar;
 use ark_crypto_primitives::{
@@ -23,7 +23,9 @@ use ark_crypto_primitives::{
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget, fields::fp::FpVar, groups::CurveVar};
+use ark_r1cs_std::{fields::FieldVar, prelude::Boolean};
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use ark_std::One;
 use config::PlasmaBlindConfigVar;
 use datastructures::{
     TX_IO_SIZE,
@@ -466,10 +468,15 @@ pub fn tx_validity_circuit<
 
 #[cfg(test)]
 pub mod tests {
+    use ark_bn254::G1Projective;
     use ark_ff::PrimeField;
+    use ark_relations::gr1cs::Matrix;
     use ark_serialize::CanonicalSerialize;
     use ark_serialize::Compress;
+    use sonobe_primitives::commitments::VectorCommitmentOps;
+    use sonobe_primitives::commitments::pedersen::Pedersen;
     use std::collections::BTreeMap;
+    use std::path::is_separator;
 
     use ark_crypto_primitives::{
         crh::{
@@ -491,6 +498,11 @@ pub mod tests {
     use ark_std::test_rng;
 
     use crate::primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config;
+    use crate::primitives::zk::sample_rr1cs;
+    use crate::utils::hadamard;
+    use crate::utils::is_zero_vec;
+    use crate::utils::mat_vec_mul;
+    use crate::utils::vec_sub;
     use crate::{
         Nullifier, UTXOProof, UTXOProofVar,
         config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
@@ -775,5 +787,19 @@ pub mod tests {
             "wtns size compressed: {}",
             wtns.serialized_size(Compress::Yes)
         );
+
+        let matrices = cs.to_matrices().unwrap();
+        println!("n matrices: {}", matrices.len());
+        println!("keys: {:?}", matrices.keys());
+        let r1cs = matrices.get("R1CS").unwrap();
+        let (a, b, c) = (&r1cs[0], &r1cs[1], &r1cs[2]);
+
+        println!("n matrices: {}", r1cs.len());
+        let w = cs.witness_assignment().unwrap();
+        let x = cs.instance_assignment().unwrap();
+
+        let ck = Pedersen::<G1Projective, true>::generate_key(x.len() + w.len(), &mut rng).unwrap();
+        sample_rr1cs::<_, Pedersen<G1Projective, true>>(a, b, c, w.len(), x.len(), ck, &mut rng)
+            .unwrap();
     }
 }
