@@ -11,5 +11,7 @@ ark-r1cs-std = { workspace = true }
 ark-relations = { workspace = true }
 ark-bn254 = { workspace = true, features = ["r1cs"] }
 ark-grumpkin = { workspace = true, features = ["r1cs"] }
-ark-std = { workspace = true, features = ["getrandom"] } 
+ark-std = { workspace = true, features = ["getrandom", "parallel"] } 
 ark-serialize = { workspace = true }
+thiserror = { workspace = true }
+sonobe-primitives = { git = "https://github.com/dmpierre/sonobe.git", branch = "dev" }

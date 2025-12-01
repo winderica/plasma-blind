@@ -14,7 +14,7 @@ dependencies = [
  "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
  "sonobe-fs",
  "sonobe-ivc",
- "sonobe-primitives",
+ "sonobe-primitives 0.1.0 (git+https://github.com/privacy-ethereum/sonobe?rev=7ad64ef647a4bc75462ad5475902acfd7a6da90a)",
 ]
 
 [[package]]
@@ -412,6 +412,8 @@ dependencies = [
  "ark-relations 0.5.1 (git+https://github.com/arkworks-rs/snark)",
  "ark-serialize",
  "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
+ "sonobe-primitives 0.1.0 (git+https://github.com/dmpierre/sonobe.git?branch=dev)",
+ "thiserror",
 ]
 
 [[package]]
@@ -1067,7 +1069,7 @@ dependencies = [
  "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
  "num-bigint",
  "rayon",
- "sonobe-primitives",
+ "sonobe-primitives 0.1.0 (git+https://github.com/privacy-ethereum/sonobe?rev=7ad64ef647a4bc75462ad5475902acfd7a6da90a)",
  "thiserror",
 ]
 
@@ -1084,7 +1086,29 @@ dependencies = [
  "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
  "num-bigint",
  "sonobe-fs",
- "sonobe-primitives",
+ "sonobe-primitives 0.1.0 (git+https://github.com/privacy-ethereum/sonobe?rev=7ad64ef647a4bc75462ad5475902acfd7a6da90a)",
+ "thiserror",
+]
+
+[[package]]
+name = "sonobe-primitives"
+version = "0.1.0"
+source = "git+https://github.com/dmpierre/sonobe.git?branch=dev#fcc0a4d59ef042f3c59b327bbdf3c68f86ab2b9c"
+dependencies = [
+ "ark-crypto-primitives",
+ "ark-ec",
+ "ark-ff",
+ "ark-poly",
+ "ark-poly-commit",
+ "ark-r1cs-std",
+ "ark-relations 0.5.1 (git+https://github.com/arkworks-rs/snark)",
+ "ark-serialize",
+ "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "rayon",
+ "sha3",
  "thiserror",
 ]
 

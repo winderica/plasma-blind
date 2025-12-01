@@ -3,8 +3,6 @@ resolver = "2"
 members = [ "aggregator", "client", "core" ]
 
 [workspace.dependencies]
-
-# Arkworks family
 ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives", default-features = false }
 ark-ec = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
 ark-ff = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
@@ -16,14 +14,12 @@ ark-relations = { git = "https://github.com/arkworks-rs/snark", default-features
 ark-serialize = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
 ark-snark = { git = "https://github.com/arkworks-rs/snark", default-features = false }
 ark-std = { git = "https://github.com/arkworks-rs/std", default-features = false }
-
-# Ark curves
 ark-bn254 = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
 ark-grumpkin = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
-
 sonobe-fs = { git = "https://github.com/privacy-ethereum/sonobe", rev = "7ad64ef647a4bc75462ad5475902acfd7a6da90a" }
 sonobe-ivc = { git = "https://github.com/privacy-ethereum/sonobe", rev = "7ad64ef647a4bc75462ad5475902acfd7a6da90a" }
 sonobe-primitives = { git = "https://github.com/privacy-ethereum/sonobe", rev = "7ad64ef647a4bc75462ad5475902acfd7a6da90a" }
+thiserror = "2.0.16"
 
 [patch.crates-io]
 # We depend on git versions of arkworks crates, but some of our dependencies
