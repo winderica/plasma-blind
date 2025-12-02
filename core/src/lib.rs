@@ -4,6 +4,8 @@ pub mod errs;
 pub mod primitives;
 pub mod utils;
 
+use std::marker::PhantomData;
+
 use crate::datastructures::transparenttx::constraints::TransparentTransactionVar;
 use ark_crypto_primitives::{
     Error,
@@ -22,20 +24,26 @@ use ark_crypto_primitives::{
 };
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget, fields::fp::FpVar, groups::CurveVar};
+use ark_r1cs_std::{
+    alloc::{AllocVar, AllocationMode},
+    eq::EqGadget,
+    fields::fp::FpVar,
+    groups::CurveVar,
+};
 use ark_r1cs_std::{fields::FieldVar, prelude::Boolean};
-use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 use ark_std::One;
-use config::PlasmaBlindConfigVar;
+use config::{PlasmaBlindConfig, PlasmaBlindConfigVar};
 use datastructures::{
     TX_IO_SIZE,
     block::{Block, constraints::BlockVar},
     blocktree::{BlockTreeConfig, constraints::BlockTreeConfigGadget},
-    keypair::constraints::PublicKeyVar,
+    keypair::{PublicKey, constraints::PublicKeyVar},
     shieldedtx::{
         ShieldedTransaction, ShieldedTransactionConfig,
         constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
     },
+    transparenttx::TransparentTransaction,
     utxo::constraints::UTXOVar,
 };
 use primitives::{
@@ -376,6 +384,148 @@ impl<
     }
 }
 
+pub struct TransactionValidityCircuit<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    CVar: CurveVar<C, C::BaseField>,
+    TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
+    TCG: SparseConfigGadget<
+            TC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = ShieldedTransactionVar<C, CVar>,
+        >,
+    SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
+    SCG: SparseConfigGadget<
+            SC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = PublicKeyVar<C, CVar>,
+        >,
+> {
+    null_sk: C::BaseField, // user secret for nullifier computation
+    null_pk: C::BaseField, // hash of user's secret, which is registered on the L1
+    pk: PublicKey<C>,      // user public key
+    transparent_tx: TransparentTransaction<C>, // transparent transaction
+    shielded_tx: ShieldedTransaction<C>, // shielded transaction (root of tree built from
+    // transparent tx)
+    shielded_tx_outputs: Vec<<ShieldedTransactionConfig<C> as Config>::Leaf>, // utxo leaves of shielded_tx
+    shielded_tx_outputs_proofs: Vec<Path<ShieldedTransactionConfig<C>>>, // proofs that output utxo is leaf of current shielded transaction
+    input_utxos_proofs: Vec<UTXOProof<C, TC, SC>>, // proof of existence of input
+    // utxos
+    plasma_blind_config: PlasmaBlindConfig<C, TC, SC>,
+    _m: PhantomData<(CVar, SCG, TCG)>,
+}
+
+impl<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    CVar: CurveVar<C, C::BaseField>,
+    TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>> + Clone, // transaction tree config
+    TCG: SparseConfigGadget<
+            TC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = ShieldedTransactionVar<C, CVar>,
+        >,
+    SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>> + Clone, // signer tree config
+    SCG: SparseConfigGadget<
+            SC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = PublicKeyVar<C, CVar>,
+        >,
+> ConstraintSynthesizer<C::BaseField> for TransactionValidityCircuit<C, CVar, TC, TCG, SC, SCG>
+{
+    fn generate_constraints(
+        self,
+        cs: ConstraintSystemRef<C::BaseField>,
+    ) -> Result<(), SynthesisError> {
+        let null_sk = FpVar::new_witness(cs.clone(), || Ok(self.null_sk))?;
+        let null_pk = FpVar::new_input(cs.clone(), || Ok(self.null_pk))?;
+        let pk = PublicKeyVar::new_input(cs.clone(), || Ok(self.pk))?;
+        let transparent_tx = TransparentTransactionVar::<_, CVar>::new_witness(cs.clone(), || {
+            Ok(self.transparent_tx.clone())
+        })?;
+        let shielded_tx =
+            ShieldedTransactionVar::<_, CVar>::new_input(cs.clone(), || Ok(self.shielded_tx))
+                .unwrap();
+
+        // define input witness values
+        let shielded_tx_outputs = Vec::<UTXOVar<_, CVar>>::new_witness(cs.clone(), || {
+            Ok(self.shielded_tx_outputs.clone())
+        })?;
+        let shielded_tx_outputs_proofs = Vec::<
+            PathVar<_, _, ShieldedTransactionConfigGadget<_, CVar>>,
+        >::new_witness(cs.clone(), || {
+            Ok(self.shielded_tx_outputs_proofs)
+        })
+        .unwrap();
+        let input_utxos_proofs =
+            Vec::<UTXOProofVar<_, CVar, _, TCG, _, SCG>>::new_witness(cs.clone(), || {
+                Ok(self.input_utxos_proofs)
+            })?;
+
+        let plasma_blind_config = PlasmaBlindConfigVar::new_variable(
+            cs.clone(),
+            || Ok(self.plasma_blind_config),
+            AllocationMode::Constant,
+        )?;
+
+        let null_pk_computed =
+            CRHGadget::evaluate(&plasma_blind_config.poseidon_config, &[null_sk.clone()])?;
+        null_pk_computed.enforce_equal(&null_pk)?;
+
+        // checks transparent tx inputs sum up to outputs
+        transparent_tx
+            .inputs
+            .iter()
+            .map(|i| &i.amount)
+            .sum::<FpVar<C::BaseField>>()
+            .enforce_equal(
+                &transparent_tx
+                    .outputs
+                    .iter()
+                    .map(|i| &i.amount)
+                    .sum::<FpVar<C::BaseField>>(),
+            )?;
+
+        for input_utxo_proof in input_utxos_proofs {
+            input_utxo_proof.is_valid(&null_sk, pk.clone(), &plasma_blind_config)?;
+        }
+
+        // initialize variables to ensure that output utxos have a strictly increasing index starting
+        // at TX_IO_SIZE
+        let one = FpVar::new_constant(cs.clone(), C::BaseField::one())?;
+        let mut index_output_utxo =
+            FpVar::new_constant(cs.clone(), C::BaseField::from((TX_IO_SIZE) as u64))?;
+
+        for (shielded_tx_inclusion_proof, output_utxo) in
+            shielded_tx_outputs_proofs.iter().zip(shielded_tx_outputs)
+        {
+            // ensure that utxo indexes are correct
+            output_utxo.index.enforce_equal(&index_output_utxo)?;
+            let is_in_tx = shielded_tx_inclusion_proof.verify_membership(
+                &plasma_blind_config.shielded_tx_leaf_config,
+                &plasma_blind_config.shielded_tx_two_to_one_config,
+                &shielded_tx.shielded_tx,
+                &output_utxo,
+            )?;
+
+            is_in_tx.enforce_equal(&Boolean::Constant(true))?;
+            index_output_utxo += one.clone();
+        }
+
+        Ok(())
+    }
+}
+
 pub fn tx_validity_circuit<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,
@@ -468,15 +618,26 @@ pub fn tx_validity_circuit<
 
 #[cfg(test)]
 pub mod tests {
+
     use ark_bn254::G1Projective;
     use ark_ff::PrimeField;
-    use ark_relations::gr1cs::Matrix;
-    use ark_serialize::CanonicalSerialize;
-    use ark_serialize::Compress;
-    use sonobe_primitives::commitments::VectorCommitmentOps;
+    use sonobe_fs::DeciderKey;
+    use sonobe_fs::FoldingSchemeDef;
+    use sonobe_fs::FoldingSchemeOps;
+    use sonobe_fs::nova::Nova;
+    use sonobe_fs::nova::instance::IncomingInstance;
+    use sonobe_fs::nova::instance::RunningInstance;
+    use sonobe_fs::nova::witness::IncomingWitness;
+    use sonobe_fs::nova::witness::RunningWitness;
+    use sonobe_primitives::circuits::Assignments;
+    use sonobe_primitives::circuits::ConstraintSystemBuilder;
     use sonobe_primitives::commitments::pedersen::Pedersen;
+    use sonobe_primitives::relations::WitnessInstanceSampler;
+    use sonobe_primitives::transcripts::Transcript;
+    use sonobe_primitives::transcripts::griffin::GriffinParams;
+    use sonobe_primitives::transcripts::griffin::sponge::GriffinSponge;
     use std::collections::BTreeMap;
-    use std::path::is_separator;
+    use std::sync::Arc;
 
     use ark_crypto_primitives::{
         crh::{
@@ -497,12 +658,8 @@ pub mod tests {
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::test_rng;
 
+    use crate::TransactionValidityCircuit;
     use crate::primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config;
-    use crate::primitives::zk::sample_rr1cs;
-    use crate::utils::hadamard;
-    use crate::utils::is_zero_vec;
-    use crate::utils::mat_vec_mul;
-    use crate::utils::vec_sub;
     use crate::{
         Nullifier, UTXOProof, UTXOProofVar,
         config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
@@ -775,31 +932,62 @@ pub mod tests {
         cs.finalize();
 
         assert!(cs.is_satisfied().unwrap());
-        let wtns = cs.witness_assignment().unwrap();
+        //let x = cs.witness_assignment().unwrap();
+        //let x = x.into_iter().skip(1).collect();
+        //let w = cs.instance_assignment().unwrap();
 
-        println!("n constraints: {}", cs.num_constraints());
-        println!("n wtns elements: {}", wtns.len());
-        println!(
-            "wtns size uncompressed: {}",
-            wtns.serialized_size(Compress::No)
-        );
-        println!(
-            "wtns size compressed: {}",
-            wtns.serialized_size(Compress::Yes)
-        );
+        let ck_size = cs.num_constraints().max(cs.num_witness_variables());
 
-        let matrices = cs.to_matrices().unwrap();
-        println!("n matrices: {}", matrices.len());
-        println!("keys: {:?}", matrices.keys());
-        let r1cs = matrices.get("R1CS").unwrap();
-        let (a, b, c) = (&r1cs[0], &r1cs[1], &r1cs[2]);
+        //let tx_validity_circuit = TransactionValidityCircuit {
+        //    null_sk: bob_sk,
+        //    null_pk: bob_pk,
+        //    pk: bob.keypair.pk,
+        //    transparent_tx: bob_to_alice_tx,
+        //    shielded_tx: bob_to_alice_shielded_tx,
+        //    shielded_tx_outputs: bob_to_alice_tx.outputs.to_vec(),
+        //    shielded_tx_outputs_proofs: bob_to_alice_shielded_tx_output_proofs,
+        //    input_utxos_proofs: bob_input_utxos_proofs,
+        //    plasma_blind_config: config,
+        //    _m: std::marker::PhantomData,
+        //};
+        //let cs = ConstraintSystemBuilder::new()
+        //    .with_setup_mode()
+        //    .with_circuit(tx_validity_circuit)
+        //    .synthesize()
+        //    .unwrap();
+        //let assignments = Assignments::from((Fr::from(1), x, w));
+        //let arith = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeDef>::Arith::from(cs);
+        //let pp_f = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::preprocess(
+        //    ck_size, &mut rng,
+        //)
+        //.unwrap();
+        //// <Nova<Pedersen<G1Projective>> as >
+        //let dk = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::generate_keys(
+        //    pp_f, arith,
+        //)
+        //.unwrap();
+        //let (W, U): (
+        //    RunningWitness<Pedersen<G1Projective, true>>,
+        //    RunningInstance<Pedersen<G1Projective, true>>,
+        //) = dk.sample((), &mut rng).unwrap();
+        //let (w, u): (
+        //    IncomingWitness<Pedersen<G1Projective, true>>,
+        //    IncomingInstance<Pedersen<G1Projective, true>>,
+        //) = dk.sample(assignments, &mut rng).unwrap();
 
-        println!("n matrices: {}", r1cs.len());
-        let w = cs.witness_assignment().unwrap();
-        let x = cs.instance_assignment().unwrap();
+        //let hash_config = Arc::new(GriffinParams::new(16, 5, 9));
+        //let hash = GriffinSponge::<Fr>::new_with_pp_hash(&hash_config, Default::default());
+        //let mut transcript = hash.separate_domain("transcript1".as_ref());
 
-        let ck = Pedersen::<G1Projective, true>::generate_key(x.len() + w.len(), &mut rng).unwrap();
-        sample_rr1cs::<_, Pedersen<G1Projective, true>>(a, b, c, w.len(), x.len(), ck, &mut rng)
-            .unwrap();
+        //let res = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::prove(
+        //    dk.to_pk(),
+        //    &mut transcript,
+        //    &[W],
+        //    &[U],
+        //    &[w],
+        //    &[u],
+        //    &mut rng,
+        //)
+        //.unwrap();
     }
 }
