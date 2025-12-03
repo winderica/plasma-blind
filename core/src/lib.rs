@@ -14,6 +14,7 @@ pub mod tests {
     use ark_bn254::G1Projective;
     use ark_ff::PrimeField;
     use ark_relations::gr1cs::ConstraintSynthesizer;
+    use ark_serialize::{CanonicalSerialize, Compress};
     use sonobe_fs::{
         DeciderKey, FoldingSchemeDef, FoldingSchemeOps,
         nova::{
@@ -324,15 +325,18 @@ pub mod tests {
         let hash = GriffinSponge::<Fr>::new_with_pp_hash(&hash_config, Default::default());
         let mut transcript = hash.separate_domain("transcript1".as_ref());
 
-        let res = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::prove(
-            dk.to_pk(),
-            &mut transcript,
-            &[W],
-            &[U],
-            &[w],
-            &[u],
-            &mut rng,
-        )
-        .unwrap();
+        let (rw, ru, cm_t, rho) =
+            <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::prove(
+                dk.to_pk(),
+                &mut transcript,
+                &[W],
+                &[U],
+                &[w],
+                &[u],
+                &mut rng,
+            )
+            .unwrap();
+        let (len_wtns, size) = (rw.w.len(), rw.w.serialized_size(Compress::Yes));
+        println!("len wtns: {len_wtns}, compressed_size: {size}");
     }
 }

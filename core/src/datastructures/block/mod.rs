@@ -1,4 +1,4 @@
-use crate::Nullifier;
+use crate::datastructures::nullifier::Nullifier;
 
 pub mod constraints;
 

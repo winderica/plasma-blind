@@ -357,6 +357,7 @@ mod tests {
     use core::{
         datastructures::{
             block::Block,
+            nullifier::Nullifier,
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
             signerlist::{constraints::SignerTreeConfigGadget, SignerTree, SignerTreeConfig},
             transparenttx::TransparentTransaction,
@@ -370,7 +371,6 @@ mod tests {
             accumulator::constraints::PoseidonAccumulatorVar,
             crh::{poseidon_canonical_config, PublicKeyCRH},
         },
-        Nullifier,
     };
     use std::collections::BTreeMap;
 
