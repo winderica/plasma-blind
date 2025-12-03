@@ -3,6 +3,7 @@ pub mod blocktree;
 pub mod deposits;
 pub mod keypair;
 pub mod noncemap;
+pub mod nullifier;
 pub mod publickeymap;
 pub mod shieldedtx;
 pub mod signerlist;

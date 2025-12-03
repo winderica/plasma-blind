@@ -1,5 +1,3 @@
-use std::{iter::Chain, slice::Iter};
-
 use ark_crypto_primitives::{
     Error,
     sponge::{Absorb, poseidon::PoseidonConfig},
@@ -8,7 +6,7 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_std::iterable::Iterable;
 
-use crate::Nullifier;
+use crate::datastructures::nullifier::Nullifier;
 
 use super::{TX_IO_SIZE, utxo::UTXO};
 

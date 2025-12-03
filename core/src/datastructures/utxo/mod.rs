@@ -13,6 +13,7 @@ use crate::primitives::{crh::UTXOCRH, sparsemt::SparseConfig};
 use super::keypair::PublicKey;
 
 pub mod constraints;
+pub mod proof;
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub struct UTXO<C: CurveGroup> {
