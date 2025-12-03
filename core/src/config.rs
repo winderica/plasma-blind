@@ -21,6 +21,7 @@ use crate::{
     },
 };
 
+#[derive(Clone)]
 pub struct PlasmaBlindConfig<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     TC: SparseConfig, // transaction tree config

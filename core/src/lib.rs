@@ -384,6 +384,7 @@ impl<
     }
 }
 
+#[derive(Clone)]
 pub struct TransactionValidityCircuit<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,
@@ -418,6 +419,57 @@ pub struct TransactionValidityCircuit<
     // utxos
     plasma_blind_config: PlasmaBlindConfig<C, TC, SC>,
     _m: PhantomData<(CVar, SCG, TCG)>,
+}
+
+impl<
+    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    CVar: CurveVar<C, C::BaseField>,
+    TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>> + Clone, // transaction tree config
+    TCG: SparseConfigGadget<
+            TC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = ShieldedTransactionVar<C, CVar>,
+        >,
+    SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>> + Clone, // signer tree config
+    SCG: SparseConfigGadget<
+            SC,
+            C::BaseField,
+            InnerDigest = FpVar<C::BaseField>,
+            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
+            LeafDigest = FpVar<C::BaseField>,
+            Leaf = PublicKeyVar<C, CVar>,
+        >,
+> TransactionValidityCircuit<C, CVar, TC, TCG, SC, SCG>
+{
+    pub fn new(
+        null_sk: C::BaseField, // user secret for nullifier computation
+        null_pk: C::BaseField, // hash of user's secret, which is registered on the L1
+        pk: PublicKey<C>,      // user public key
+        transparent_tx: TransparentTransaction<C>, // transparent transaction
+        shielded_tx: ShieldedTransaction<C>, // shielded transaction (root of tree built from
+        // transparent tx)
+        shielded_tx_outputs: Vec<<ShieldedTransactionConfig<C> as Config>::Leaf>, // utxo leaves of shielded_tx
+        shielded_tx_outputs_proofs: Vec<Path<ShieldedTransactionConfig<C>>>, // proofs that output utxo is leaf of current shielded transaction
+        input_utxos_proofs: Vec<UTXOProof<C, TC, SC>>, // proof of existence of input
+        // utxos
+        plasma_blind_config: PlasmaBlindConfig<C, TC, SC>,
+    ) -> Self {
+        TransactionValidityCircuit {
+            null_sk,
+            null_pk,
+            pk,
+            transparent_tx,
+            shielded_tx,
+            shielded_tx_outputs,
+            shielded_tx_outputs_proofs,
+            input_utxos_proofs,
+            plasma_blind_config,
+            _m: PhantomData::<(CVar, SCG, TCG)>,
+        }
+    }
 }
 
 impl<
@@ -526,116 +578,29 @@ impl<
     }
 }
 
-pub fn tx_validity_circuit<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    CVar: CurveVar<C, C::BaseField>,
-    TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
-    TCG: SparseConfigGadget<
-            TC,
-            C::BaseField,
-            InnerDigest = FpVar<C::BaseField>,
-            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-            LeafDigest = FpVar<C::BaseField>,
-            Leaf = ShieldedTransactionVar<C, CVar>,
-        >,
-    SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
-    SCG: SparseConfigGadget<
-            SC,
-            C::BaseField,
-            InnerDigest = FpVar<C::BaseField>,
-            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-            LeafDigest = FpVar<C::BaseField>,
-            Leaf = PublicKeyVar<C, CVar>,
-        >,
->(
-    cs: ConstraintSystemRef<C::BaseField>,
-    null_sk: &FpVar<C::BaseField>, // user secret for nullifier computation
-    null_pk: &FpVar<C::BaseField>, // hash of user's secret, which is registered on the L1
-    pk: PublicKeyVar<C, CVar>,     // user public key
-    transparent_tx: &TransparentTransactionVar<C, CVar>, // transparent transaction
-    shielded_tx: &ShieldedTransactionVar<C, CVar>, // shielded transaction (root of tree built from
-    // transparent tx)
-    shielded_tx_outputs: &[<ShieldedTransactionConfigGadget<C, CVar> as ConfigGadget<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-    >>::Leaf], // utxo leaves of shielded_tx
-    shielded_tx_outputs_proofs: &[PathVar<
-        ShieldedTransactionConfig<C>,
-        C::BaseField,
-        ShieldedTransactionConfigGadget<C, CVar>,
-    >], // proofs that output utxo is leaf of current shielded transaction
-    input_utxos_proofs: &[UTXOProofVar<C, CVar, TC, TCG, SC, SCG>], // proof of existence of input
-    // utxos
-    plasma_blind_config: &PlasmaBlindConfigVar<C, CVar, TC, TCG, SC, SCG>,
-) -> Result<(), SynthesisError> {
-    // enforce correct nullifier secret is being used
-    let null_pk_computed =
-        CRHGadget::evaluate(&plasma_blind_config.poseidon_config, &[null_sk.clone()])?;
-    null_pk_computed.enforce_equal(&null_pk)?;
-
-    // checks transparent tx inputs sum up to outputs
-    transparent_tx
-        .inputs
-        .iter()
-        .map(|i| &i.amount)
-        .sum::<FpVar<C::BaseField>>()
-        .enforce_equal(
-            &transparent_tx
-                .outputs
-                .iter()
-                .map(|i| &i.amount)
-                .sum::<FpVar<C::BaseField>>(),
-        )?;
-
-    for input_utxo_proof in input_utxos_proofs {
-        input_utxo_proof.is_valid(null_sk, pk.clone(), &plasma_blind_config)?;
-    }
-
-    // initialize variables to ensure that output utxos have a strictly increasing index starting
-    // at TX_IO_SIZE
-    let one = FpVar::new_constant(cs.clone(), C::BaseField::one())?;
-    let mut index_output_utxo =
-        FpVar::new_constant(cs.clone(), C::BaseField::from((TX_IO_SIZE) as u64))?;
-
-    for (shielded_tx_inclusion_proof, output_utxo) in
-        shielded_tx_outputs_proofs.iter().zip(shielded_tx_outputs)
-    {
-        // ensure that utxo indexes are correct
-        output_utxo.index.enforce_equal(&index_output_utxo)?;
-        let is_in_tx = shielded_tx_inclusion_proof.verify_membership(
-            &plasma_blind_config.shielded_tx_leaf_config,
-            &plasma_blind_config.shielded_tx_two_to_one_config,
-            &shielded_tx.shielded_tx,
-            output_utxo,
-        )?;
-
-        is_in_tx.enforce_equal(&Boolean::Constant(true))?;
-        index_output_utxo += one.clone();
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 pub mod tests {
 
     use ark_bn254::G1Projective;
     use ark_ff::PrimeField;
-    use sonobe_fs::DeciderKey;
-    use sonobe_fs::FoldingSchemeDef;
-    use sonobe_fs::FoldingSchemeOps;
-    use sonobe_fs::nova::Nova;
-    use sonobe_fs::nova::instance::IncomingInstance;
-    use sonobe_fs::nova::instance::RunningInstance;
-    use sonobe_fs::nova::witness::IncomingWitness;
-    use sonobe_fs::nova::witness::RunningWitness;
-    use sonobe_primitives::circuits::Assignments;
-    use sonobe_primitives::circuits::ConstraintSystemBuilder;
-    use sonobe_primitives::commitments::pedersen::Pedersen;
-    use sonobe_primitives::relations::WitnessInstanceSampler;
-    use sonobe_primitives::transcripts::Transcript;
-    use sonobe_primitives::transcripts::griffin::GriffinParams;
-    use sonobe_primitives::transcripts::griffin::sponge::GriffinSponge;
+    use ark_relations::gr1cs::ConstraintSynthesizer;
+    use sonobe_fs::{
+        DeciderKey, FoldingSchemeDef, FoldingSchemeOps,
+        nova::{
+            Nova,
+            instance::{IncomingInstance, RunningInstance},
+            witness::{IncomingWitness, RunningWitness},
+        },
+    };
+    use sonobe_primitives::{
+        circuits::{Assignments, ConstraintSystemBuilder},
+        commitments::pedersen::Pedersen,
+        relations::WitnessInstanceSampler,
+        transcripts::{
+            Transcript,
+            griffin::{GriffinParams, sponge::GriffinSponge},
+        },
+    };
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -644,7 +609,7 @@ pub mod tests {
             CRHScheme, TwoToOneCRHScheme,
             poseidon::{CRH, TwoToOneCRH},
         },
-        merkle_tree::{Path, constraints::PathVar},
+        merkle_tree::Path,
         sponge::Absorb,
     };
 
@@ -652,30 +617,22 @@ pub mod tests {
     use ark_ff::UniformRand;
     use ark_grumpkin::Projective as GrumpkinProjective;
     use ark_grumpkin::constraints::GVar as GrumpkinProjectiveVar;
-    use ark_r1cs_std::alloc::AllocVar;
-    use ark_r1cs_std::alloc::AllocationMode;
-    use ark_r1cs_std::fields::fp::FpVar;
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::test_rng;
 
     use crate::TransactionValidityCircuit;
     use crate::primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config;
     use crate::{
-        Nullifier, UTXOProof, UTXOProofVar,
-        config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
+        Nullifier, UTXOProof,
+        config::PlasmaBlindConfig,
         datastructures::{
             TX_IO_SIZE,
             block::Block,
-            keypair::constraints::PublicKeyVar,
-            shieldedtx::{
-                ShieldedTransaction,
-                constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-            },
+            shieldedtx::ShieldedTransaction,
             signerlist::{SignerTreeConfig, constraints::SignerTreeConfigGadget},
-            transparenttx::{TransparentTransaction, constraints::TransparentTransactionVar},
+            transparenttx::TransparentTransaction,
             txtree::{TransactionTreeConfig, constraints::TransactionTreeConfigGadget},
             user::User,
-            utxo::constraints::UTXOVar,
         },
         primitives::{
             crh::{
@@ -684,7 +641,6 @@ pub mod tests {
             },
             sparsemt::{MerkleSparseTree, SparseConfig},
         },
-        tx_validity_circuit,
     };
 
     pub fn make_sparse_tree<
@@ -872,122 +828,80 @@ pub mod tests {
         );
         bob_input_utxos_proofs[0] = utxo_from_alice_proof;
 
-        // 8. initialize cs and inputs
-        let cs = ConstraintSystem::<Fr>::new_ref();
+        let tx_validity_circuit = TransactionValidityCircuit::<
+            _,
+            GrumpkinProjectiveVar,
+            _,
+            TransactionTreeConfigGadget<_, GrumpkinProjectiveVar>,
+            _,
+            SignerTreeConfigGadget<_, GrumpkinProjectiveVar>,
+        >::new(
+            bob_sk,
+            bob_pk,
+            bob.keypair.pk,
+            bob_to_alice_tx.clone(),
+            bob_to_alice_shielded_tx,
+            bob_to_alice_tx.outputs.to_vec(),
+            bob_to_alice_shielded_tx_output_proofs,
+            bob_input_utxos_proofs,
+            config,
+        );
 
-        // define public input values
-        let null_pk_var = FpVar::new_input(cs.clone(), || Ok(bob_pk)).unwrap();
-        let bob_pk_var = PublicKeyVar::new_input(cs.clone(), || Ok(bob.keypair.pk)).unwrap();
-        let bob_to_alice_shielded_tx_var =
-            ShieldedTransactionVar::new_input(cs.clone(), || Ok(bob_to_alice_shielded_tx)).unwrap();
-
-        // define input witness values
-        let null_sk_var = FpVar::new_witness(cs.clone(), || Ok(bob_sk)).unwrap();
-        let bob_to_alice_transparent_tx_var =
-            TransparentTransactionVar::new_witness(cs.clone(), || Ok(bob_to_alice_tx.clone()))
-                .unwrap();
-        let bob_to_alice_shielded_tx_outputs_var =
-            Vec::<UTXOVar<_, GrumpkinProjectiveVar>>::new_witness(cs.clone(), || {
-                Ok(bob_to_alice_tx.outputs.clone())
-            })
+        let cs_ref = ConstraintSystem::new_ref();
+        tx_validity_circuit
+            .clone()
+            .generate_constraints(cs_ref.clone())
             .unwrap();
-        let bob_to_alice_shielded_tx_output_proofs_var = Vec::<
-            PathVar<_, _, ShieldedTransactionConfigGadget<_, GrumpkinProjectiveVar>>,
-        >::new_witness(cs.clone(), || {
-            Ok(bob_to_alice_shielded_tx_output_proofs)
-        })
-        .unwrap();
-        let bob_input_utxo_proofs_var =
-            Vec::<UTXOProofVar<_, GrumpkinProjectiveVar, _, _, _, _>>::new_witness(
-                cs.clone(),
-                || Ok(bob_input_utxos_proofs.clone()),
-            )
+        let (w, x) = (
+            cs_ref.witness_assignment().unwrap(),
+            cs_ref
+                .instance_assignment()
+                .unwrap()
+                .into_iter()
+                .skip(1)
+                .collect(),
+        );
+        assert!(cs_ref.is_satisfied().unwrap());
+
+        let cs = ConstraintSystemBuilder::new()
+            .with_setup_mode()
+            .with_circuit(tx_validity_circuit)
+            .synthesize()
             .unwrap();
-
-        let config_var =
-            PlasmaBlindConfigVar::<
-                _,
-                GrumpkinProjectiveVar,
-                _,
-                TransactionTreeConfigGadget<_, GrumpkinProjectiveVar>,
-                _,
-                SignerTreeConfigGadget<_, GrumpkinProjectiveVar>,
-            >::new_variable(cs.clone(), || Ok(config), AllocationMode::Constant)
-            .unwrap();
-
-        tx_validity_circuit(
-            cs.clone(),
-            &null_sk_var,
-            &null_pk_var,
-            bob_pk_var,
-            &bob_to_alice_transparent_tx_var,
-            &bob_to_alice_shielded_tx_var,
-            &bob_to_alice_shielded_tx_outputs_var,
-            &bob_to_alice_shielded_tx_output_proofs_var,
-            &bob_input_utxo_proofs_var,
-            &config_var,
-        )
-        .unwrap();
-
-        cs.finalize();
-
-        assert!(cs.is_satisfied().unwrap());
-        //let x = cs.witness_assignment().unwrap();
-        //let x = x.into_iter().skip(1).collect();
-        //let w = cs.instance_assignment().unwrap();
-
         let ck_size = cs.num_constraints().max(cs.num_witness_variables());
 
-        //let tx_validity_circuit = TransactionValidityCircuit {
-        //    null_sk: bob_sk,
-        //    null_pk: bob_pk,
-        //    pk: bob.keypair.pk,
-        //    transparent_tx: bob_to_alice_tx,
-        //    shielded_tx: bob_to_alice_shielded_tx,
-        //    shielded_tx_outputs: bob_to_alice_tx.outputs.to_vec(),
-        //    shielded_tx_outputs_proofs: bob_to_alice_shielded_tx_output_proofs,
-        //    input_utxos_proofs: bob_input_utxos_proofs,
-        //    plasma_blind_config: config,
-        //    _m: std::marker::PhantomData,
-        //};
-        //let cs = ConstraintSystemBuilder::new()
-        //    .with_setup_mode()
-        //    .with_circuit(tx_validity_circuit)
-        //    .synthesize()
-        //    .unwrap();
-        //let assignments = Assignments::from((Fr::from(1), x, w));
-        //let arith = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeDef>::Arith::from(cs);
-        //let pp_f = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::preprocess(
-        //    ck_size, &mut rng,
-        //)
-        //.unwrap();
-        //// <Nova<Pedersen<G1Projective>> as >
-        //let dk = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::generate_keys(
-        //    pp_f, arith,
-        //)
-        //.unwrap();
-        //let (W, U): (
-        //    RunningWitness<Pedersen<G1Projective, true>>,
-        //    RunningInstance<Pedersen<G1Projective, true>>,
-        //) = dk.sample((), &mut rng).unwrap();
-        //let (w, u): (
-        //    IncomingWitness<Pedersen<G1Projective, true>>,
-        //    IncomingInstance<Pedersen<G1Projective, true>>,
-        //) = dk.sample(assignments, &mut rng).unwrap();
+        let assignments = Assignments::from((Fr::from(1), x, w));
+        let arith = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeDef>::Arith::from(cs);
+        let pp_f = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::preprocess(
+            ck_size, &mut rng,
+        )
+        .unwrap();
+        let dk = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::generate_keys(
+            pp_f, arith,
+        )
+        .unwrap();
+        let (W, U): (
+            RunningWitness<Pedersen<G1Projective, true>>,
+            RunningInstance<Pedersen<G1Projective, true>>,
+        ) = dk.sample((), &mut rng).unwrap();
+        let (w, u): (
+            IncomingWitness<Pedersen<G1Projective, true>>,
+            IncomingInstance<Pedersen<G1Projective, true>>,
+        ) = dk.sample(assignments, &mut rng).unwrap();
 
-        //let hash_config = Arc::new(GriffinParams::new(16, 5, 9));
-        //let hash = GriffinSponge::<Fr>::new_with_pp_hash(&hash_config, Default::default());
-        //let mut transcript = hash.separate_domain("transcript1".as_ref());
+        let hash_config = Arc::new(GriffinParams::new(16, 5, 9));
+        let hash = GriffinSponge::<Fr>::new_with_pp_hash(&hash_config, Default::default());
+        let mut transcript = hash.separate_domain("transcript1".as_ref());
 
-        //let res = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::prove(
-        //    dk.to_pk(),
-        //    &mut transcript,
-        //    &[W],
-        //    &[U],
-        //    &[w],
-        //    &[u],
-        //    &mut rng,
-        //)
-        //.unwrap();
+        let res = <Nova<Pedersen<G1Projective, true>> as FoldingSchemeOps<1, 1>>::prove(
+            dk.to_pk(),
+            &mut transcript,
+            &[W],
+            &[U],
+            &[w],
+            &[u],
+            &mut rng,
+        )
+        .unwrap();
     }
 }
