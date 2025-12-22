@@ -9,34 +9,27 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
+use super::{BLOCK_TREE_HEIGHT, BlockTreeConfig};
 use crate::{
     datastructures::block::constraints::BlockHashVar,
     primitives::{crh::constraints::BlockTreeVarCRH, sparsemt::constraints::SparseConfigGadget},
 };
 
-use super::{BLOCK_TREE_HEIGHT, BlockTreeConfig};
-
-pub struct BlockTreeConfigGadget<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    CVar: CurveVar<C, C::BaseField>,
-> {
-    _c: PhantomData<C>,
-    _c1: PhantomData<CVar>,
+pub struct BlockTreeConfigGadget<F: Absorb + PrimeField> {
+    _f: PhantomData<F>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    ConfigGadget<BlockTreeConfig<C>, C::BaseField> for BlockTreeConfigGadget<C, CVar>
-{
-    type Leaf = BlockHashVar<C::BaseField>;
-    type LeafDigest = FpVar<C::BaseField>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<C::BaseField>>;
-    type InnerDigest = FpVar<C::BaseField>;
-    type LeafHash = BlockTreeVarCRH<C::BaseField>;
-    type TwoToOneHash = TwoToOneCRHGadget<C::BaseField>;
+impl<F: Absorb + PrimeField> ConfigGadget<BlockTreeConfig<F>, F> for BlockTreeConfigGadget<F> {
+    type Leaf = BlockHashVar<F>;
+    type LeafDigest = FpVar<F>;
+    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
+    type InnerDigest = FpVar<F>;
+    type LeafHash = BlockTreeVarCRH<F>;
+    type TwoToOneHash = TwoToOneCRHGadget<F>;
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    SparseConfigGadget<BlockTreeConfig<C>, C::BaseField> for BlockTreeConfigGadget<C, CVar>
+impl<F: Absorb + PrimeField> SparseConfigGadget<BlockTreeConfig<F>, F>
+    for BlockTreeConfigGadget<F>
 {
-    const HEIGHT: u64 = BLOCK_TREE_HEIGHT;
+    const HEIGHT: usize = BLOCK_TREE_HEIGHT;
 }

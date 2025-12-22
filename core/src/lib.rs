@@ -5,16 +5,31 @@ pub mod errs;
 pub mod primitives;
 pub mod utils;
 
-const TX_TREE_HEIGHT: u64 = 13;
-const SIGNER_TREE_HEIGHT: u64 = TX_TREE_HEIGHT;
+const TX_TREE_HEIGHT: usize = 13;
+const SIGNER_TREE_HEIGHT: usize = TX_TREE_HEIGHT;
+const NULLIFIER_TREE_HEIGHT: usize = 32;
 
 #[cfg(test)]
 pub mod tests {
 
-    use ark_bn254::G1Projective;
-    use ark_ff::PrimeField;
-    use ark_relations::gr1cs::ConstraintSynthesizer;
+    use std::{collections::BTreeMap, sync::Arc};
+
+    use ark_bn254::{Fr, G1Projective};
+    use ark_crypto_primitives::{
+        crh::{
+            CRHScheme, TwoToOneCRHScheme,
+            poseidon::{CRH, TwoToOneCRH},
+        },
+        merkle_tree::Path,
+        sponge::Absorb,
+    };
+    use ark_ff::{PrimeField, UniformRand};
+    use ark_grumpkin::{
+        Projective as GrumpkinProjective, constraints::GVar as GrumpkinProjectiveVar,
+    };
+    use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystem};
     use ark_serialize::{CanonicalSerialize, Compress};
+    use ark_std::test_rng;
     use sonobe_fs::{
         DeciderKey, FoldingSchemeDef, FoldingSchemeOps,
         nova::{
@@ -32,44 +47,28 @@ pub mod tests {
             griffin::{GriffinParams, sponge::GriffinSponge},
         },
     };
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
 
-    use ark_crypto_primitives::{
-        crh::{
-            CRHScheme, TwoToOneCRHScheme,
-            poseidon::{CRH, TwoToOneCRH},
-        },
-        merkle_tree::Path,
-        sponge::Absorb,
-    };
-
-    use ark_bn254::Fr;
-    use ark_ff::UniformRand;
-    use ark_grumpkin::Projective as GrumpkinProjective;
-    use ark_grumpkin::constraints::GVar as GrumpkinProjectiveVar;
-    use ark_relations::gr1cs::ConstraintSystem;
-    use ark_std::test_rng;
-
-    use crate::circuit::TransactionValidityCircuit;
-    use crate::primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config;
     use crate::{
+        circuit::TransactionValidityCircuit,
         config::PlasmaBlindConfig,
-        datastructures::utxo::proof::UTXOProof,
         datastructures::{
             TX_IO_SIZE,
             block::Block,
+            blocktree::BlockTreeConfig,
             nullifier::Nullifier,
-            shieldedtx::ShieldedTransaction,
+            shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
             signerlist::{SignerTreeConfig, constraints::SignerTreeConfigGadget},
             transparenttx::TransparentTransaction,
             txtree::{TransactionTreeConfig, constraints::TransactionTreeConfigGadget},
             user::User,
+            utxo::proof::UTXOProof,
         },
         primitives::{
             crh::{
-                BlockCRH, BlockTreeCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH,
-                utils::initialize_poseidon_config,
+                BlockCRH, BlockTreeCRH, PublicKeyCRH, UTXOCRH,
+                utils::{
+                    initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
+                },
             },
             sparsemt::{MerkleSparseTree, SparseConfig},
         },
@@ -83,11 +82,12 @@ pub mod tests {
         two_to_one_hash_params: &<MT::TwoToOneHash as TwoToOneCRHScheme>::Parameters,
         values: impl Iterator<Item = MT::Leaf>,
     ) -> MerkleSparseTree<MT> {
-        let mut leaves = BTreeMap::new();
-        for (i, value) in values.into_iter().enumerate() {
-            leaves.insert(i as u64, value);
-        }
-        MerkleSparseTree::<MT>::new(leaf_hash_params, two_to_one_hash_params, &leaves).unwrap()
+        MerkleSparseTree::<MT>::new(
+            leaf_hash_params,
+            two_to_one_hash_params,
+            &BTreeMap::from_iter(values.into_iter().enumerate()),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -99,10 +99,9 @@ pub mod tests {
         let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
         let poseidon_config = initialize_poseidon_config::<Fr>();
 
-        let shielded_tx_leaf_config =
-            <UTXOCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
-        let tx_tree_leaf_config =
-            <ShieldedTransactionCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
+        let utxo_crh_config = <UTXOCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
+        let shielded_tx_leaf_config = ();
+        let tx_tree_leaf_config = ();
         let signer_tree_leaf_config =
             <PublicKeyCRH<GrumpkinProjective> as CRHScheme>::setup(&mut rng).unwrap();
         let block_tree_leaf_config = <BlockTreeCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
@@ -114,12 +113,9 @@ pub mod tests {
 
         let block_crh_config = <BlockCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
 
-        let config = PlasmaBlindConfig::<
-            GrumpkinProjective,
-            TransactionTreeConfig<GrumpkinProjective>,
-            SignerTreeConfig<GrumpkinProjective>,
-        >::new(
+        let config = PlasmaBlindConfig::<GrumpkinProjective>::new(
             poseidon_config.clone(),
+            utxo_crh_config,
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
             tx_tree_leaf_config,
@@ -152,29 +148,38 @@ pub mod tests {
         alice_to_bob_tx.outputs[TX_IO_SIZE - 1].tx_index = Some(alice_to_bob_tx_index);
         alice_to_bob_tx.outputs[TX_IO_SIZE - 1].block_height = Some(block_height);
 
-        let (alice_to_bob_shielded_tx, alice_to_bob_shielded_tx_tree) = ShieldedTransaction::new(
-            &config.shielded_tx_leaf_config,
-            &config.shielded_tx_two_to_one_config,
-            alice.keypair.pk,
+        let alice_to_bob_shielded_tx = ShieldedTransaction::new(
+            &config.poseidon_config,
+            &config.utxo_crh_config,
+            &alice_sk,
             &alice_to_bob_tx,
         )
         .unwrap();
-        let alice_to_bob_tx_nullifiers = alice_to_bob_tx
-            .nullifiers(&config.poseidon_config, &alice_sk)
+        let alice_to_bob_utxo_tree =
+            MerkleSparseTree::<ShieldedTransactionConfig<_>>::new(
+                &config.shielded_tx_leaf_config,
+                &config.shielded_tx_two_to_one_config,
+                &BTreeMap::from_iter(
+                    alice_to_bob_shielded_tx
+                        .output_utxo_commitments
+                        .into_iter()
+                        .enumerate(),
+                ),
+            )
             .unwrap();
 
         // 3. build block where alice's transaction is included
-        let mut transactions_in_block = [ShieldedTransaction::default(); 8];
-        transactions_in_block[alice_to_bob_tx_index as usize] = alice_to_bob_shielded_tx.clone();
+        let mut transactions_in_block = vec![Fr::default(); 8];
+        transactions_in_block[alice_to_bob_tx_index as usize] = alice_to_bob_utxo_tree.root();
 
         // NOTE: transactions and signer tree are built by the aggregator
-        let transactions_tree = make_sparse_tree(
+        let transactions_tree = make_sparse_tree::<_, TransactionTreeConfig<_>>(
             &config.tx_tree_leaf_config,
             &config.tx_tree_two_to_one_config,
             transactions_in_block.into_iter(),
         );
         // alice's keypair will be stored at index 0 in the signer tree
-        let signer_tree = make_sparse_tree(
+        let signer_tree = make_sparse_tree::<_, SignerTreeConfig<_>>(
             &config.signer_tree_leaf_config,
             &config.signer_tree_two_to_one_config,
             [alice.keypair.pk.clone()].into_iter(),
@@ -182,7 +187,7 @@ pub mod tests {
         let prev_block = Block {
             tx_tree_root: transactions_tree.root(),
             signer_tree_root: signer_tree.root(),
-            nullifiers: alice_to_bob_tx_nullifiers,
+            nullifier_tree_root: Fr::default(),
             signers: vec![Some(alice.id)],
             height: block_height as usize,
             deposits: vec![],
@@ -191,7 +196,7 @@ pub mod tests {
 
         // NOTE: block tree stored on the l1
         let block_hash = BlockCRH::evaluate(&config.block_crh_config, prev_block.clone()).unwrap();
-        let block_tree = make_sparse_tree(
+        let block_tree = make_sparse_tree::<_, BlockTreeConfig<_>>(
             &(),
             &config.block_tree_two_to_one_config,
             [block_hash].into_iter(),
@@ -202,16 +207,19 @@ pub mod tests {
         //    NOTE: this is happening OOB
         let alice_to_bob_utxo = alice_to_bob_tx.outputs[TX_IO_SIZE - 1];
         let alice_to_bob_utxo_index = alice_to_bob_utxo.index;
-        let alice_to_bob_utxo_proof = alice_to_bob_shielded_tx_tree
-            .generate_proof(alice_to_bob_utxo_index as usize)
+        let alice_to_bob_utxo_proof = alice_to_bob_utxo_tree
+            .generate_membership_proof(alice_to_bob_utxo_index as usize)
             .unwrap();
         let alice_shielded_tx_inclusion_proof = transactions_tree
-            .generate_membership_proof(alice_to_bob_tx_index)
+            .generate_membership_proof(alice_to_bob_tx_index as usize)
             .unwrap();
 
         // 4. signer and block inclusion proof are retrieved by bob from the l1
-        let alice_signer_inclusion_proof = signer_tree.generate_membership_proof(0).unwrap();
-        let block_inclusion_proof = block_tree.generate_membership_proof(0).unwrap();
+        let signer_index = 0;
+        let alice_signer_inclusion_proof =
+            signer_tree.generate_membership_proof(signer_index).unwrap();
+        let block_index = 0;
+        let block_inclusion_proof = block_tree.generate_membership_proof(block_index).unwrap();
 
         // 5. prepare bob to alice transaction utxos. first utxo input is alice's utxo to bob
         // the last utxo output is bob's utxo to alice
@@ -221,60 +229,39 @@ pub mod tests {
         bob_to_alice_tx.outputs[TX_IO_SIZE - 1].amount = 10;
 
         // 6. prepare bob to alice shielded transaction
-        let (bob_to_alice_shielded_tx, bob_to_alice_shielded_tx_tree) = ShieldedTransaction::new(
-            &config.shielded_tx_leaf_config,
-            &config.shielded_tx_two_to_one_config,
-            bob.keypair.pk,
+        let bob_to_alice_shielded_tx = ShieldedTransaction::new(
+            &config.poseidon_config,
+            &config.utxo_crh_config,
+            &bob_sk,
             &bob_to_alice_tx,
         )
         .unwrap();
 
-        let bob_to_alice_shielded_tx_output_proofs = (4..8)
-            .map(|i| bob_to_alice_shielded_tx_tree.generate_proof(i).unwrap())
-            .collect::<Vec<Path<_>>>();
-
         // 7. prepare proof for the input utxo from alice
-        let alice_to_bob_utxo_nullifier = Nullifier::new(
-            &config.poseidon_config,
-            bob_sk,
-            alice_to_bob_utxo_index as u8,
-            alice_to_bob_tx_index as usize,
-            block_height as usize,
-        )
-        .unwrap();
-
         let mut bob_input_utxos_proofs = vec![UTXOProof::default(); 4];
 
         let utxo_from_alice_proof = UTXOProof::new(
             prev_block,
-            alice_to_bob_shielded_tx,
+            alice.keypair.pk,
+            alice_to_bob_utxo_tree.root(),
             Fr::from(alice_to_bob_tx_index),
-            alice_to_bob_utxo,
             Fr::from(alice_to_bob_utxo_index as u8),
             alice_to_bob_utxo_proof,
             alice_signer_inclusion_proof,
+            Fr::from(signer_index as u64),
             alice_shielded_tx_inclusion_proof,
             block_tree.root(),
             block_inclusion_proof,
-            alice_to_bob_utxo_nullifier,
+            Fr::from(block_index as u64),
         );
         bob_input_utxos_proofs[0] = utxo_from_alice_proof;
 
-        let tx_validity_circuit = TransactionValidityCircuit::<
-            _,
-            GrumpkinProjectiveVar,
-            _,
-            TransactionTreeConfigGadget<_, GrumpkinProjectiveVar>,
-            _,
-            SignerTreeConfigGadget<_, GrumpkinProjectiveVar>,
-        >::new(
+        let tx_validity_circuit = TransactionValidityCircuit::<_, GrumpkinProjectiveVar>::new(
             bob_sk,
             bob_pk,
             bob.keypair.pk,
             bob_to_alice_tx.clone(),
             bob_to_alice_shielded_tx,
-            bob_to_alice_tx.outputs.to_vec(),
-            bob_to_alice_shielded_tx_output_proofs,
             bob_input_utxos_proofs,
             config,
         );
@@ -296,7 +283,7 @@ pub mod tests {
         assert!(cs_ref.is_satisfied().unwrap());
 
         let cs = ConstraintSystemBuilder::new()
-            .with_setup_mode()
+            .with_prove_mode()
             .with_circuit(tx_validity_circuit)
             .synthesize()
             .unwrap();

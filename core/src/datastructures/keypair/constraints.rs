@@ -1,25 +1,23 @@
+use std::{borrow::Borrow, marker::PhantomData};
+
 use ark_crypto_primitives::{crh::poseidon::constraints::CRHParametersVar, sponge::Absorb};
 use ark_ec::CurveGroup;
 use ark_ff::{BigInteger, PrimeField};
-use ark_r1cs_std::alloc::AllocVar;
-use ark_r1cs_std::alloc::AllocationMode;
-use ark_r1cs_std::eq::EqGadget;
-use ark_r1cs_std::select::CondSelectGadget;
-use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar, prelude::Boolean};
-use ark_relations::gr1cs::Namespace;
-use ark_relations::gr1cs::SynthesisError;
-use std::borrow::Borrow;
-use std::marker::PhantomData;
-
-use crate::primitives::schnorr::SchnorrGadget;
+use ark_r1cs_std::{
+    alloc::{AllocVar, AllocationMode},
+    eq::EqGadget,
+    fields::fp::FpVar,
+    groups::CurveVar,
+    prelude::Boolean,
+    select::CondSelectGadget,
+};
+use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use super::{PublicKey, Signature};
+use crate::primitives::schnorr::SchnorrGadget;
 
 #[derive(Debug, Clone)]
-pub struct PublicKeyVar<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    CVar: CurveVar<C, C::BaseField>,
-> {
+pub struct PublicKeyVar<C: CurveGroup<BaseField: PrimeField>, CVar: CurveVar<C, C::BaseField>> {
     pub key: CVar,
     pub _f: PhantomData<C>,
 }

@@ -12,15 +12,35 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
-use crate::datastructures::{
-    block::constraints::{BlockHashVar, BlockVar},
-    keypair::constraints::PublicKeyVar,
-    noncemap::constraints::NonceVar,
-    shieldedtx::constraints::ShieldedTransactionVar,
-    utxo::constraints::UTXOVar,
+use super::{BlockCRH, BlockTreeCRH, NonceCRH, PublicKeyCRH, UTXOCRH};
+use crate::{
+    datastructures::{
+        block::constraints::{BlockHashVar, BlockVar},
+        keypair::constraints::PublicKeyVar,
+        noncemap::constraints::NonceVar,
+        nullifier::constraints::NullifierVar,
+        shieldedtx::constraints::ShieldedTransactionVar,
+        utxo::constraints::UTXOVar,
+    },
+    primitives::crh::{IdentityCRH, NullifierCRH},
 };
 
-use super::{BlockCRH, BlockTreeCRH, NonceCRH, PublicKeyCRH, ShieldedTransactionCRH, UTXOCRH};
+pub struct IdentityCRHGadget<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField + Absorb> CRHSchemeGadget<IdentityCRH<F>, F> for IdentityCRHGadget<F> {
+    type InputVar = FpVar<F>;
+    type OutputVar = FpVar<F>;
+    type ParametersVar = ();
+
+    fn evaluate(
+        parameters: &Self::ParametersVar,
+        input: &Self::InputVar,
+    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
+        Ok(input.clone())
+    }
+}
 
 pub struct ShieldedTransactionVarCRH<C, CVar> {
     _c: PhantomData<C>,
@@ -29,40 +49,6 @@ pub struct ShieldedTransactionVarCRH<C, CVar> {
 
 pub struct NonceVarCRH<F: PrimeField> {
     _f: PhantomData<F>,
-}
-
-impl<C, CVar> Default for ShieldedTransactionVarCRH<C, CVar> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<C, CVar> ShieldedTransactionVarCRH<C, CVar> {
-    pub fn new() -> Self {
-        Self {
-            _c: PhantomData,
-            _cvar: PhantomData,
-        }
-    }
-}
-
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    CRHSchemeGadget<ShieldedTransactionCRH<C>, C::BaseField>
-    for ShieldedTransactionVarCRH<C, CVar>
-{
-    type InputVar = ShieldedTransactionVar<C, CVar>;
-    type OutputVar = FpVar<C::BaseField>;
-    type ParametersVar = CRHParametersVar<C::BaseField>;
-
-    fn evaluate(
-        parameters: &Self::ParametersVar,
-        input: &Self::InputVar,
-    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        // hash of a committed transaction is identity, since it is already a shielded tx
-        let pk_hash = PublicKeyVarCRH::evaluate(&parameters, &input.from)?;
-        let res = CRHGadget::evaluate(&parameters, &[pk_hash, input.shielded_tx.clone()])?;
-        Ok(res)
-    }
 }
 
 impl<F: PrimeField + Absorb> CRHSchemeGadget<NonceCRH<F>, F> for NonceVarCRH<F> {
@@ -128,7 +114,6 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
             input.amount.clone(),
             bool_as_fp,
             input.salt.clone(),
-            input.index.clone(),
         ]);
         for p in pk_point {
             input.push(p);
@@ -137,31 +122,31 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     }
 }
 
-pub struct BlockVarCRH<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    TC: Config, // transaction tree config
-    TCG: ConfigGadget<TC, C::BaseField>,
-    SC: Config,
-    SCG: ConfigGadget<SC, C::BaseField>,
-> {
-    _c: PhantomData<C>,
-    _tc: PhantomData<TC>,
-    _tcg: PhantomData<TCG>,
-    _sc: PhantomData<SC>,
-    _scg: PhantomData<SCG>,
+pub struct NullifierVarCRH<F: PrimeField> {
+    _f: PhantomData<F>,
 }
 
-impl<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    TC: Config, // transaction tree config
-    TCG: ConfigGadget<TC, C::BaseField, InnerDigest = FpVar<C::BaseField>>,
-    SC: Config,
-    SCG: ConfigGadget<SC, C::BaseField, InnerDigest = FpVar<C::BaseField>>,
-> CRHSchemeGadget<BlockCRH<C::BaseField>, C::BaseField> for BlockVarCRH<C, TC, TCG, SC, SCG>
-{
-    type InputVar = BlockVar<C, TC, TCG, SC, SCG>;
-    type OutputVar = FpVar<C::BaseField>;
-    type ParametersVar = CRHParametersVar<C::BaseField>;
+impl<F: PrimeField + Absorb> CRHSchemeGadget<NullifierCRH<F>, F> for NullifierVarCRH<F> {
+    type InputVar = NullifierVar<F>;
+    type OutputVar = FpVar<F>;
+    type ParametersVar = ();
+
+    fn evaluate(
+        _parameters: &Self::ParametersVar,
+        input: &Self::InputVar,
+    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
+        Ok(input.value.clone())
+    }
+}
+
+pub struct BlockVarCRH<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockCRH<F>, F> for BlockVarCRH<F> {
+    type InputVar = BlockVar<F>;
+    type OutputVar = FpVar<F>;
+    type ParametersVar = CRHParametersVar<F>;
 
     fn evaluate(
         parameters: &Self::ParametersVar,

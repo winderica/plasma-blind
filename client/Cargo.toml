@@ -11,7 +11,6 @@ default = ["console_error_panic_hook"]
 
 [dependencies]
 wasm-bindgen = "0.2.84"
-core = { path = "../core/" }
 ark-ec = { workspace = true }
 ark-ff = { workspace = true }
 ark-std = { workspace = true }
@@ -21,6 +20,8 @@ console_error_panic_hook = { version = "0.1.7", optional = true }
 ark-grumpkin = { workspace = true }
 ark-r1cs-std = { workspace = true }
 ark-relations = { workspace = true }
+
+plasmablind-core = { workspace = true }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"

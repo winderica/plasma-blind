@@ -23,7 +23,7 @@ impl<C: CurveGroup> Default for TransparentTransaction<C> {
         let inputs = [UTXO::default(); TX_IO_SIZE];
         let mut outputs = [UTXO::default(); TX_IO_SIZE];
         for (i, utxo) in outputs.iter_mut().enumerate() {
-            utxo.index = (TX_IO_SIZE + i) as u8;
+            utxo.index = i as u8;
         }
         Self { inputs, outputs }
     }
@@ -36,15 +36,14 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> TransparentTransaction<C> {
 
     pub fn get_default_output_utxos() -> [UTXO<C>; 4] {
         let mut output = [UTXO::<C>::default(); TX_IO_SIZE];
-        let output_offset_index = TX_IO_SIZE / 2 - 1;
         for i in 0..TX_IO_SIZE {
-            output[i].index = (i + output_offset_index) as u8;
+            output[i].index = i as u8;
         }
         output
     }
 
-    pub fn utxos(&self) -> Vec<UTXO<C>> {
-        [self.inputs, self.outputs].concat()
+    pub fn outputs(&self) -> Vec<UTXO<C>> {
+        self.outputs.to_vec()
     }
 
     pub fn nullifiers(

@@ -29,5 +29,5 @@ impl<F: PrimeField + Absorb> ConfigGadget<NonceTreeConfig<F>, F> for NonceTreeCo
 impl<F: PrimeField + Absorb> SparseConfigGadget<NonceTreeConfig<F>, F>
     for NonceTreeConfigGadget<F>
 {
-    const HEIGHT: u64 = 32;
+    const HEIGHT: usize = 32;
 }

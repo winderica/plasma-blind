@@ -22,13 +22,12 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct UTXOVar<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>> {
+pub struct UTXOVar<C: CurveGroup<BaseField: PrimeField>, CVar: CurveVar<C, C::BaseField>> {
     pub amount: FpVar<C::BaseField>,
     pub pk: PublicKeyVar<C, CVar>,
     pub salt: FpVar<C::BaseField>,
     pub index: FpVar<C::BaseField>,
     pub is_dummy: Boolean<C::BaseField>,
-    pub tx_index: FpVar<C::BaseField>,
 }
 
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
@@ -56,11 +55,6 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
             salt: FpVar::new_variable(cs.clone(), || Ok(C::BaseField::from(*salt)), mode)?,
             index: FpVar::new_variable(cs.clone(), || Ok(C::BaseField::from(*index)), mode)?,
             is_dummy: Boolean::new_variable(cs.clone(), || Ok(is_dummy), mode)?,
-            tx_index: FpVar::new_variable(
-                cs.clone(),
-                || Ok(C::BaseField::from(tx_index.unwrap_or(0))),
-                mode,
-            )?,
         })
     }
 }
@@ -85,5 +79,5 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
     SparseConfigGadget<UTXOTreeConfig<C>, C::BaseField> for UTXOTreeConfigGadget<C, CVar>
 {
-    const HEIGHT: u64 = 32;
+    const HEIGHT: usize = 32;
 }

@@ -9,7 +9,7 @@ pub type BlockHash<F> = F;
 pub struct Block<F> {
     pub tx_tree_root: F,
     pub signer_tree_root: F,
-    pub nullifiers: Vec<Nullifier<F>>,
+    pub nullifier_tree_root: F,
     // the list of signer ids
     pub signers: Vec<Option<u32>>,
     pub height: usize,

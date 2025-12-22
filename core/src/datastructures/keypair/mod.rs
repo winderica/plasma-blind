@@ -3,9 +3,10 @@ use ark_crypto_primitives::{
     sponge::{poseidon::PoseidonConfig, Absorb},
     Error,
 };
-use ark_ec::CurveGroup;
-use ark_ff::PrimeField;
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::{One, PrimeField, Zero};
 use ark_std::rand::Rng;
+use sonobe_primitives::traits::Inputize;
 
 pub mod constraints;
 
@@ -40,6 +41,16 @@ pub struct PublicKey<C: CurveGroup> {
 impl<C: CurveGroup> AsRef<PublicKey<C>> for PublicKey<C> {
     fn as_ref(&self) -> &PublicKey<C> {
         self
+    }
+}
+
+impl<C: CurveGroup> Inputize<C::BaseField> for PublicKey<C> {
+    fn inputize(&self) -> Vec<C::BaseField> {
+        let affine = self.key.into_affine();
+        match affine.xy() {
+            Some((x, y)) => vec![x, y, One::one()],
+            None => vec![Zero::zero(), One::one(), Zero::zero()],
+        }
     }
 }
 

@@ -13,34 +13,33 @@ use crate::{
     TX_TREE_HEIGHT,
     datastructures::shieldedtx::constraints::ShieldedTransactionVar,
     primitives::{
-        crh::constraints::ShieldedTransactionVarCRH, sparsemt::constraints::SparseConfigGadget,
+        crh::constraints::{IdentityCRHGadget, ShieldedTransactionVarCRH}, sparsemt::constraints::SparseConfigGadget,
     },
 };
 
 use super::TransactionTreeConfig;
 
 #[derive(Clone, Debug)]
-pub struct TransactionTreeConfigGadget<C, CVar> {
-    _c: PhantomData<C>,
-    _cvar: PhantomData<CVar>,
+pub struct TransactionTreeConfigGadget<F> {
+    _f: PhantomData<F>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    ConfigGadget<TransactionTreeConfig<C>, C::BaseField> for TransactionTreeConfigGadget<C, CVar>
+impl<F: PrimeField + Absorb>
+    ConfigGadget<TransactionTreeConfig<F>, F> for TransactionTreeConfigGadget<F>
 {
     // leaves are shielded transactions (i.e. roots of a mt)
-    type Leaf = ShieldedTransactionVar<C, CVar>;
-    type LeafDigest = FpVar<C::BaseField>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<C::BaseField>>;
-    type InnerDigest = FpVar<C::BaseField>;
+    type Leaf = FpVar<F>;
+    type LeafDigest = FpVar<F>;
+    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
+    type InnerDigest = FpVar<F>;
     // the leaf hash is identity, since leaves are roots of mt
-    type LeafHash = ShieldedTransactionVarCRH<C, CVar>;
-    type TwoToOneHash = TwoToOneCRHGadget<C::BaseField>;
+    type LeafHash = IdentityCRHGadget<F>;
+    type TwoToOneHash = TwoToOneCRHGadget<F>;
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    SparseConfigGadget<TransactionTreeConfig<C>, C::BaseField>
-    for TransactionTreeConfigGadget<C, CVar>
+impl<F: PrimeField + Absorb>
+    SparseConfigGadget<TransactionTreeConfig<F>, F>
+    for TransactionTreeConfigGadget<F>
 {
-    const HEIGHT: u64 = TX_TREE_HEIGHT;
+    const HEIGHT: usize = TX_TREE_HEIGHT;
 }

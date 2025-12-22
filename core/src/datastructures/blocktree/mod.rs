@@ -18,22 +18,22 @@ pub mod constraints;
 
 pub type BlockTree<P> = MerkleSparseTree<P>;
 
-const BLOCK_TREE_HEIGHT: u64 = 25;
+pub const BLOCK_TREE_HEIGHT: usize = 25;
 
 #[derive(Clone, Debug)]
-pub struct BlockTreeConfig<C: CurveGroup> {
-    _c: PhantomData<C>,
+pub struct BlockTreeConfig<F> {
+    _f: PhantomData<F>,
 }
 
-impl<C: CurveGroup<BaseField: Absorb + PrimeField>> Config for BlockTreeConfig<C> {
-    type Leaf = BlockHash<C::BaseField>;
-    type LeafDigest = C::BaseField;
-    type LeafInnerDigestConverter = IdentityDigestConverter<C::BaseField>;
-    type InnerDigest = C::BaseField;
-    type LeafHash = BlockTreeCRH<C::BaseField>;
-    type TwoToOneHash = TwoToOneCRH<C::BaseField>;
+impl<F: Absorb + PrimeField> Config for BlockTreeConfig<F> {
+    type Leaf = BlockHash<F>;
+    type LeafDigest = F;
+    type LeafInnerDigestConverter = IdentityDigestConverter<F>;
+    type InnerDigest = F;
+    type LeafHash = BlockTreeCRH<F>;
+    type TwoToOneHash = TwoToOneCRH<F>;
 }
 
-impl<C: CurveGroup<BaseField: Absorb + PrimeField>> SparseConfig for BlockTreeConfig<C> {
-    const HEIGHT: u64 = BLOCK_TREE_HEIGHT;
+impl<F: Absorb + PrimeField> SparseConfig for BlockTreeConfig<F> {
+    const HEIGHT: usize = BLOCK_TREE_HEIGHT;
 }

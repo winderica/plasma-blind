@@ -38,5 +38,5 @@ where
 impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
     SparseConfigGadget<SignerTreeConfig<C>, C::BaseField> for SignerTreeConfigGadget<C, CVar>
 {
-    const HEIGHT: u64 = SIGNER_TREE_HEIGHT;
+    const HEIGHT: usize = SIGNER_TREE_HEIGHT;
 }

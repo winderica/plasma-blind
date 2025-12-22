@@ -1,3 +1,5 @@
+use std::{borrow::Borrow, cmp::Ordering, marker::PhantomData};
+
 use ark_crypto_primitives::{
     crh::{
         poseidon::{
@@ -19,7 +21,8 @@ use ark_r1cs_std::{
     prelude::Boolean,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
-use core::{
+use plasmablind_core::{
+    config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
     datastructures::{
         block::constraints::BlockVar,
         keypair::constraints::PublicKeyVar,
@@ -34,30 +37,18 @@ use core::{
     primitives::{
         accumulator::constraints::Accumulator,
         crh::{
-            constraints::{BlockVarCRH, PublicKeyVarCRH},
+            constraints::{BlockVarCRH, PublicKeyVarCRH, UTXOVarCRH},
             BlockCRH, PublicKeyCRH,
         },
-        sparsemt::{
-            constraints::{MerkleSparseTreePathVar, SparseConfigGadget},
-            SparseConfig,
-        },
+        sparsemt::{constraints::SparseConfigGadget, SparseConfig},
     },
 };
-use std::borrow::Borrow;
-use std::{cmp::Ordering, marker::PhantomData};
 
 use crate::UserAux;
 
 // indicates which utxo will be processed by balance circuit
 pub type OpeningsMaskVar<F> = Vec<Boolean<F>>;
-pub type UTXOInclusionProofVar<C, F, CVar> =
-    PathVar<ShieldedTransactionConfig<C>, F, ShieldedTransactionConfigGadget<C, CVar>>;
-pub type ShieldedTxInclusionProofVar<C, F, CVar> =
-    MerkleSparseTreePathVar<TransactionTreeConfig<C>, F, TransactionTreeConfigGadget<C, CVar>>;
-pub type SignerInclusionProofVar<C, F, CVar> =
-    MerkleSparseTreePathVar<SignerTreeConfig<C>, F, SignerTreeConfigGadget<C, CVar>>;
 
-#[derive(Clone)]
 pub struct UserCircuit<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,
@@ -71,7 +62,7 @@ pub struct UserCircuit<
     _c: PhantomData<C>,
     _cvar: PhantomData<CVar>,
     acc_pp: T::ParametersVar, // public parameters for the accumulator might not be poseidon
-    pp: CRHParametersVar<C::BaseField>,
+    plasma_blind_config: PlasmaBlindConfigVar<C, CVar>,
 }
 
 impl<
@@ -83,14 +74,17 @@ impl<
         const N_TX_PER_FOLD_STEP: usize,
     > UserCircuit<C, CVar, H, T, A, N_TX_PER_FOLD_STEP>
 {
-    pub fn new(acc_pp: T::ParametersVar, pp: CRHParametersVar<C::BaseField>) -> Self {
+    pub fn new(
+        acc_pp: T::ParametersVar,
+        plasma_blind_config: PlasmaBlindConfigVar<C, CVar>,
+    ) -> Self {
         Self {
             _a: PhantomData,
             _f: PhantomData,
             _c: PhantomData,
             _cvar: PhantomData,
             acc_pp,
-            pp,
+            plasma_blind_config,
         }
     }
 }
@@ -106,69 +100,33 @@ impl<
 //      - if user is receiver and utxo is valid, increase balance (ok)
 //      - if user is sender and utxo is valid, decrease balance (ok)
 // - accumulate block hash
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct UserAuxVar<
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,
-    TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
-    TCG: SparseConfigGadget<
-        TC,
-        C::BaseField,
-        InnerDigest = FpVar<C::BaseField>,
-        TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-        LeafDigest = FpVar<C::BaseField>,
-        Leaf = ShieldedTransactionVar<C, CVar>,
-    >,
-    SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
-    SCG: SparseConfigGadget<
-        SC,
-        C::BaseField,
-        InnerDigest = FpVar<C::BaseField>,
-        TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-        LeafDigest = FpVar<C::BaseField>,
-        Leaf = PublicKeyVar<C, CVar>,
-    >,
 > {
-    pub block: BlockVar<C, TC, TCG, SC, SCG>,
+    pub block: BlockVar<C::BaseField>,
+    pub from: PublicKeyVar<C, CVar>,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
-    pub shielded_tx: ShieldedTransactionVar<C, CVar>,
+    pub utxo_tree_root: FpVar<C::BaseField>,
     // index of transaction within transaction tree
     pub tx_index: FpVar<C::BaseField>,
     // output utxos only from shielded tx
     pub shielded_tx_utxos: Vec<UTXOVar<C, CVar>>,
     // openings for utxos
-    pub shielded_tx_utxos_proofs: Vec<UTXOInclusionProofVar<C, C::BaseField, CVar>>,
+    pub shielded_tx_utxos_proofs: Vec<(Vec<FpVar<C::BaseField>>, FpVar<C::BaseField>)>,
     // openings mask - indicates if utxo should be opened. should be filled with true when user is sender.
     pub openings_mask: OpeningsMaskVar<C::BaseField>,
     // inclusion proof showing committed_tx was included in tx tree
-    pub shielded_tx_inclusion_proof: ShieldedTxInclusionProofVar<C, C::BaseField, CVar>,
+    pub shielded_tx_inclusion_proof: Vec<FpVar<C::BaseField>>,
     // inclusion proof showing committed_tx was signed
-    pub signer_pk_inclusion_proof: SignerInclusionProofVar<C, C::BaseField, CVar>,
+    pub signer_pk_inclusion_proof: Vec<FpVar<C::BaseField>>,
+    pub signer_index: FpVar<C::BaseField>,
     pub pk: PublicKeyVar<C, CVar>,
 }
 
-impl<
-        C: CurveGroup<BaseField: PrimeField + Absorb>,
-        CVar: CurveVar<C, C::BaseField>,
-        TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
-        TCG: SparseConfigGadget<
-            TC,
-            C::BaseField,
-            InnerDigest = FpVar<C::BaseField>,
-            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-            LeafDigest = FpVar<C::BaseField>,
-            Leaf = ShieldedTransactionVar<C, CVar>,
-        >,
-        SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
-        SCG: SparseConfigGadget<
-            SC,
-            C::BaseField,
-            InnerDigest = FpVar<C::BaseField>,
-            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-            LeafDigest = FpVar<C::BaseField>,
-            Leaf = PublicKeyVar<C, CVar>,
-        >,
-    > AllocVar<UserAux<C>, C::BaseField> for UserAuxVar<C, CVar, TC, TCG, SC, SCG>
+impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
+    AllocVar<UserAux<C>, C::BaseField> for UserAuxVar<C, CVar>
 {
     fn new_variable<T: Borrow<UserAux<C>>>(
         cs: impl Into<Namespace<C::BaseField>>,
@@ -179,44 +137,50 @@ impl<
         let t = f()?;
         let user_aux = t.borrow();
         let block = BlockVar::new_variable(cs.clone(), || Ok(user_aux.block.clone()), mode)?;
-        let shielded_tx = ShieldedTransactionVar::new_variable(
-            cs.clone(),
-            || Ok(user_aux.shielded_tx.clone()),
-            mode,
-        )?;
+        let from = PublicKeyVar::new_variable(cs.clone(), || Ok(user_aux.from), mode)?;
+        let utxo_tree_root =
+            FpVar::new_variable(cs.clone(), || Ok(user_aux.utxo_tree_root.clone()), mode)?;
         let tx_index = FpVar::new_variable(cs.clone(), || Ok(user_aux.tx_index), mode)?;
         let shielded_tx_utxos = Vec::<UTXOVar<C, CVar>>::new_variable(
             cs.clone(),
             || Ok(user_aux.shielded_tx_utxos.clone()),
             mode,
         )?;
-        let shielded_tx_utxos_proofs = Vec::new_variable(
-            cs.clone(),
-            || Ok(user_aux.clone().shielded_tx_utxos_proofs),
-            mode,
-        )?;
+        let shielded_tx_utxos_proofs = user_aux
+            .shielded_tx_utxos_proofs
+            .iter()
+            .map(|i| {
+                Ok((
+                    Vec::new_variable(cs.clone(), || Ok(&i.0[..]), mode)?,
+                    FpVar::new_variable(cs.clone(), || Ok(&i.1), mode)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let openings_mask =
             Vec::new_variable(cs.clone(), || Ok(user_aux.openings_mask.clone()), mode)?;
-        let shielded_tx_inclusion_proof = ShieldedTxInclusionProofVar::new_variable(
+        let shielded_tx_inclusion_proof = AllocVar::new_variable(
             cs.clone(),
             || Ok(user_aux.shielded_tx_inclusion_proof.clone()),
             mode,
         )?;
-        let signer_pk_inclusion_proof = SignerInclusionProofVar::new_variable(
+        let signer_pk_inclusion_proof = AllocVar::new_variable(
             cs.clone(),
             || Ok(user_aux.signer_pk_inclusion_proof.clone()),
             mode,
         )?;
+        let signer_index = FpVar::new_variable(cs.clone(), || Ok(user_aux.signer_index), mode)?;
         let pk = PublicKeyVar::new_variable(cs.clone(), || Ok(user_aux.pk), mode)?;
         Ok(UserAuxVar {
             block,
-            shielded_tx,
+            from,
+            utxo_tree_root,
             tx_index,
             shielded_tx_utxos,
             shielded_tx_utxos_proofs,
             openings_mask,
             shielded_tx_inclusion_proof,
             signer_pk_inclusion_proof,
+            signer_index,
             pk,
         })
     }
@@ -231,30 +195,11 @@ impl<
         const N_TX_PER_FOLD_STEP: usize,
     > UserCircuit<C, CVar, H, T, A, N_TX_PER_FOLD_STEP>
 {
-    pub fn update_balance<
-        TC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // transaction tree config
-        TCG: SparseConfigGadget<
-            TC,
-            C::BaseField,
-            InnerDigest = FpVar<C::BaseField>,
-            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-            LeafDigest = FpVar<C::BaseField>,
-            Leaf = ShieldedTransactionVar<C, CVar>,
-        >,
-        SC: SparseConfig<InnerDigest = C::BaseField, TwoToOneHash = TwoToOneCRH<C::BaseField>>, // signer tree config
-        SCG: SparseConfigGadget<
-            SC,
-            C::BaseField,
-            InnerDigest = FpVar<C::BaseField>,
-            TwoToOneHash = TwoToOneCRHGadget<C::BaseField>,
-            LeafDigest = FpVar<C::BaseField>,
-            Leaf = PublicKeyVar<C, CVar>,
-        >,
-    >(
+    pub fn update_balance(
         &self,
         cs: ConstraintSystemRef<C::BaseField>,
         z_i: Vec<FpVar<C::BaseField>>,
-        aux: UserAuxVar<C, CVar, TC, TCG, SC, SCG>,
+        aux: UserAuxVar<C, CVar>,
     ) -> Result<Vec<FpVar<C::BaseField>>, SynthesisError> {
         let (balance, nonce, pk_hash, acc, block_hash, block_number, processed_tx_index) = (
             z_i[0].clone(),
@@ -269,15 +214,14 @@ impl<
         // ensure correct pk is provided in aux inputs
         let computed_pk_hash =
             <PublicKeyVarCRH<C, CVar> as CRHSchemeGadget<PublicKeyCRH<C>, _>>::evaluate(
-                &self.pp, &aux.pk,
+                &self.plasma_blind_config.poseidon_config,
+                &aux.pk,
             )?;
         computed_pk_hash.enforce_equal(&pk_hash)?;
 
         // compute block hash and update accumulator value
-        let next_block_hash = <BlockVarCRH<_, _, TCG, _, SCG> as CRHSchemeGadget<
-            BlockCRH<_>,
-            _,
-        >>::evaluate(&self.pp, &aux.block)?;
+        let next_block_hash =
+            BlockVarCRH::evaluate(&self.plasma_blind_config.block_crh_config, &aux.block)?;
         let next_acc = A::update(&self.acc_pp, &acc, &block_hash)?;
 
         // ensure the current processed block number is equal or greater than the previous block
@@ -292,27 +236,25 @@ impl<
         is_higher_tx_index.conditional_enforce_equal(&Boolean::Constant(true), &is_same_block)?;
 
         // check that shielded tx is in tx tree
-        aux.shielded_tx_inclusion_proof
-            .check_membership_with_index(
-                &self.pp,
-                &self.pp,
-                &aux.block.tx_tree_root,
-                &aux.shielded_tx,
-                &next_tx_index,
-            )?;
+        self.plasma_blind_config.tx_tree.check_index(
+            &aux.block.tx_tree_root,
+            &aux.utxo_tree_root,
+            &next_tx_index,
+            &aux.shielded_tx_inclusion_proof,
+        )?;
 
         // check that the signer bit is 1 for the corresponding transaction (i.e. pk is included)
-        aux.signer_pk_inclusion_proof.check_membership(
-            &self.pp,
-            &self.pp,
+        self.plasma_blind_config.signer_tree.check_index(
             &aux.block.signer_tree_root,
-            &aux.shielded_tx.from,
+            &aux.from,
+            &aux.signer_index,
+            &aux.signer_pk_inclusion_proof,
         )?;
 
         // validity of input utxos is already checked by the transaction validity circuit and the
         // aggregator, so we only need to process the output utxos?
         // note that the transaction validity circuit ensures that sum(inputs) == sum(outputs)
-        let is_sender = aux.pk.key.is_eq(&aux.shielded_tx.from.key)?;
+        let is_sender = aux.pk.key.is_eq(&aux.from.key)?;
         let next_nonce = nonce + &is_sender.clone().into();
         let mut next_balance = balance;
 
@@ -324,11 +266,11 @@ impl<
             .zip(aux.shielded_tx_utxos)
             .zip(aux.shielded_tx_utxos_proofs)
         {
-            let is_in_tree = utxo_proof.verify_membership(
-                &self.pp,
-                &self.pp,
-                &aux.shielded_tx.shielded_tx,
-                &utxo,
+            let is_in_tree = self.plasma_blind_config.utxo_tree.is_at_index(
+                &aux.utxo_tree_root,
+                &UTXOVarCRH::evaluate(&self.plasma_blind_config.utxo_crh_config, &utxo)?,
+                &utxo_proof.1,
+                &utxo_proof.0,
             )?;
 
             let is_valid_utxo = is_opened & is_in_tree;
@@ -354,24 +296,6 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use core::{
-        datastructures::{
-            block::Block,
-            nullifier::Nullifier,
-            shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::{constraints::SignerTreeConfigGadget, SignerTree, SignerTreeConfig},
-            transparenttx::TransparentTransaction,
-            txtree::{
-                constraints::TransactionTreeConfigGadget, TransactionTree, TransactionTreeConfig,
-            },
-            user::User,
-            utxo::UTXO,
-        },
-        primitives::{
-            accumulator::constraints::PoseidonAccumulatorVar,
-            crh::{poseidon_canonical_config, PublicKeyCRH},
-        },
-    };
     use std::collections::BTreeMap;
 
     use ark_bn254::Fr;
@@ -387,34 +311,80 @@ mod tests {
         sponge::poseidon::PoseidonConfig,
     };
     use ark_ff::{Field, UniformRand};
-    use ark_grumpkin::constraints::GVar as ProjectiveVar;
-    use ark_grumpkin::Projective;
+    use ark_grumpkin::{constraints::GVar as ProjectiveVar, Projective};
     use ark_r1cs_std::{
         alloc::{AllocVar, AllocationMode},
         GR1CSVar,
     };
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::{rand::RngCore, test_rng};
+    use plasmablind_core::{
+        datastructures::{
+            block::Block,
+            nullifier::Nullifier,
+            shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
+            signerlist::{constraints::SignerTreeConfigGadget, SignerTree, SignerTreeConfig},
+            transparenttx::TransparentTransaction,
+            txtree::{
+                constraints::TransactionTreeConfigGadget, TransactionTree, TransactionTreeConfig,
+            },
+            user::User,
+            utxo::UTXO,
+        },
+        primitives::{
+            accumulator::constraints::PoseidonAccumulatorVar,
+            crh::{
+                poseidon_canonical_config,
+                utils::{
+                    initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
+                },
+                BlockCRH, BlockTreeCRH, PublicKeyCRH, UTXOCRH,
+            },
+            sparsemt::MerkleSparseTree,
+        },
+    };
 
+    use super::*;
     use crate::UserAux;
-
-    use super::{UserAuxVar, UserCircuit};
-
-    pub fn make_signer_tree(
-        pp: &PoseidonConfig<Fr>,
-        users: &Vec<User<Projective>>,
-    ) -> SignerTree<SignerTreeConfig<Projective>> {
-        let mut signer_leaves = BTreeMap::new();
-        for user in users {
-            signer_leaves.insert(user.id as u64, user.keypair.pk);
-        }
-        SignerTree::<SignerTreeConfig<Projective>>::new(pp, pp, &signer_leaves).unwrap()
-    }
 
     #[test]
     pub fn test_user_circuit() {
-        let pp = poseidon_canonical_config::<Fr>();
         let mut rng = test_rng();
+        let pp = poseidon_canonical_config::<Fr>();
+
+        // initialize our plasma blind config
+        // poseidon crh only for now, should be configurable in the future
+        let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
+        let poseidon_config = initialize_poseidon_config::<Fr>();
+
+        let utxo_crh_config = <UTXOCRH<Projective> as CRHScheme>::setup(&mut rng).unwrap();
+        let shielded_tx_leaf_config = ();
+        let tx_tree_leaf_config = ();
+        let signer_tree_leaf_config =
+            <PublicKeyCRH<Projective> as CRHScheme>::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = <BlockTreeCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
+
+        let tx_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+        let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
+        let signer_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+        let block_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+
+        let block_crh_config = <BlockCRH<Fr> as CRHScheme>::setup(&mut rng).unwrap();
+
+        let config = PlasmaBlindConfig::<Projective>::new(
+            poseidon_config.clone(),
+            utxo_crh_config,
+            shielded_tx_leaf_config,
+            shielded_tx_two_to_one_config,
+            tx_tree_leaf_config,
+            tx_tree_two_to_one_config,
+            signer_tree_leaf_config,
+            signer_tree_two_to_one_config,
+            block_crh_config,
+            block_tree_leaf_config,
+            block_tree_two_to_one_config,
+        );
+
         let sender = User::new(&mut rng, 1);
         let sender_sk = Fr::rand(&mut rng);
         let receiver = User::new(&mut rng, 2);
@@ -439,79 +409,83 @@ mod tests {
                 ),
             ],
         };
-
-        let utxos = tx.inputs.clone().into_iter().chain(tx.outputs);
-
-        let shielded_tx =
-            MerkleTree::<ShieldedTransactionConfig<Projective>>::new(&pp, &pp, utxos.clone())
-                .unwrap();
-
-        let nullifiers = tx
-            .inputs
-            .iter()
-            .enumerate()
-            .map(|(idx, utxo)| Nullifier::new(&pp, sender_sk, 0, idx, 0).unwrap())
-            .collect::<Vec<_>>();
-
-        let sender_transaction = ShieldedTransaction {
-            from: sender.keypair.pk,
-            shielded_tx: shielded_tx.root(),
-        };
+        let shielded_tx = ShieldedTransaction::new(
+            &config.poseidon_config,
+            &config.utxo_crh_config,
+            &sender_sk,
+            &tx,
+        )
+        .unwrap();
+        let utxo_tree = MerkleSparseTree::<ShieldedTransactionConfig<_>>::new(
+            &config.shielded_tx_leaf_config,
+            &config.shielded_tx_two_to_one_config,
+            &BTreeMap::from_iter(shielded_tx.output_utxo_commitments.into_iter().enumerate()),
+        )
+        .unwrap();
 
         let transactions = [
-            ShieldedTransaction::default(),
-            sender_transaction.clone(),
-            ShieldedTransaction::default(),
-            ShieldedTransaction::default(),
-            ShieldedTransaction::default(),
+            Default::default(),
+            utxo_tree.root(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
         ];
 
-        let tx_leaves = BTreeMap::from_iter(
-            transactions
-                .iter()
-                .enumerate()
-                .map(|(i, tx)| (i as u64, tx.clone())),
-        );
-        let signer_tree = make_signer_tree(&pp, &vec![sender.clone()]);
-        let transaction_tree = TransactionTree::new(&pp, &pp, &tx_leaves).unwrap();
+        let signer_tree = SignerTree::<SignerTreeConfig<Projective>>::new(
+            &config.signer_tree_leaf_config,
+            &config.signer_tree_two_to_one_config,
+            &BTreeMap::from([(sender.id as usize, sender.keypair.pk)]),
+        )
+        .unwrap();
+        let transaction_tree = TransactionTree::<TransactionTreeConfig<_>>::new(
+            &(),
+            &config.shielded_tx_two_to_one_config,
+            &BTreeMap::from_iter(transactions.into_iter().enumerate()),
+        )
+        .unwrap();
 
         let block = Block {
             tx_tree_root: transaction_tree.root(),
             signer_tree_root: signer_tree.root(),
-            nullifiers,
+            nullifier_tree_root: Fr::default(),
             signers: vec![Some(sender.id)],
             height: 1,
             deposits: vec![],
             withdrawals: vec![],
         };
-        let shielded_tx_utxos_proofs = (4..8)
-            .map(|idx| shielded_tx.generate_proof(idx).unwrap())
-            .collect();
+        let shielded_tx_utxos_proofs = (0..4)
+            .map(|idx| {
+                (
+                    utxo_tree.generate_membership_proof(idx).unwrap(),
+                    Fr::from(idx as u64),
+                )
+            })
+            .collect::<Vec<_>>();
         let shielded_tx_inclusion_proof = transaction_tree.generate_membership_proof(1).unwrap();
-        let signer_inclusion_proof = signer_tree.generate_membership_proof(0).unwrap();
+        let signer_inclusion_proof = signer_tree
+            .generate_membership_proof(sender.id as usize)
+            .unwrap();
         let sender_aux = UserAux {
             block,
-            shielded_tx: sender_transaction,
+            from: sender.keypair.pk,
+            utxo_tree_root: utxo_tree.root(),
             tx_index: Fr::ONE,
             shielded_tx_utxos: tx.outputs.to_vec(), // only outputs are processed
             shielded_tx_utxos_proofs,
             openings_mask: vec![true; 4],
             shielded_tx_inclusion_proof,
             signer_pk_inclusion_proof: signer_inclusion_proof,
+            signer_index: Fr::from(sender.id as u64),
             pk: sender.keypair.pk,
         };
 
         let cs = ConstraintSystem::new_ref();
-        let sender_aux_var =
-            UserAuxVar::<
-                Projective,
-                ProjectiveVar,
-                TransactionTreeConfig<_>,
-                TransactionTreeConfigGadget<_, _>,
-                SignerTreeConfig<_>,
-                SignerTreeConfigGadget<_, _>,
-            >::new_variable(cs.clone(), || Ok(sender_aux), AllocationMode::Witness)
-            .unwrap();
+        let sender_aux_var = UserAuxVar::<Projective, ProjectiveVar>::new_variable(
+            cs.clone(),
+            || Ok(sender_aux),
+            AllocationMode::Witness,
+        )
+        .unwrap();
 
         let cur_balance = Fr::from(47);
         let cur_nonce = Fr::from(11);
@@ -540,7 +514,10 @@ mod tests {
             TwoToOneCRHGadget<Fr>,
             PoseidonAccumulatorVar<Fr>,
             1,
-        >::new(pp_var.clone(), pp_var.clone());
+        >::new(
+            pp_var.clone(),
+            PlasmaBlindConfigVar::new_constant(cs.clone(), config).unwrap(),
+        );
 
         let new_z_i_var = user_circuit
             .update_balance(cs.clone(), z_i_var, sender_aux_var)

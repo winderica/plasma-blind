@@ -92,5 +92,5 @@ impl<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>> Config for UTXOTreeCo
 }
 
 impl<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>> SparseConfig for UTXOTreeConfig<C> {
-    const HEIGHT: u64 = 32;
+    const HEIGHT: usize = 32;
 }

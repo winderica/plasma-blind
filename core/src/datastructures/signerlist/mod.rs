@@ -37,5 +37,5 @@ impl<C: CurveGroup<BaseField: Absorb + PrimeField>> Config for SignerTreeConfig<
 }
 
 impl<C: CurveGroup<BaseField: Absorb + PrimeField>> SparseConfig for SignerTreeConfig<C> {
-    const HEIGHT: u64 = SIGNER_TREE_HEIGHT;
+    const HEIGHT: usize = SIGNER_TREE_HEIGHT;
 }

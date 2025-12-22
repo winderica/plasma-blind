@@ -1,16 +1,30 @@
 // Define the various CRH used in PlasmaFold
-use std::{borrow::Borrow, marker::PhantomData};
+use std::{borrow::Borrow, fmt::Debug, marker::PhantomData};
 
 use ark_crypto_primitives::{
     Error,
-    crh::{CRHScheme, poseidon::CRH},
+    crh::{
+        CRHScheme, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
+        poseidon::{
+            CRH, TwoToOneCRH,
+            constraints::{CRHGadget, TwoToOneCRHGadget},
+        },
+    },
     sponge::{
         Absorb,
-        poseidon::{PoseidonConfig, find_poseidon_ark_and_mds},
+        constraints::CryptographicSpongeVar,
+        poseidon::{PoseidonConfig, constraints::PoseidonSpongeVar, find_poseidon_ark_and_mds},
     },
 };
-use ark_ec::{AdditiveGroup, AffineRepr, CurveGroup};
-use ark_ff::{Field, PrimeField};
+use ark_ec::{
+    AdditiveGroup, AffineRepr, CurveConfig, CurveGroup,
+    short_weierstrass::{Projective, SWCurveConfig},
+};
+use ark_ff::{Field, Fp, FpConfig, One, PrimeField, ToConstraintField, Zero};
+use ark_r1cs_std::{
+    GR1CSVar, convert::ToConstraintFieldGadget, fields::fp::FpVar, groups::CurveVar,
+};
+use ark_relations::gr1cs::SynthesisError;
 use ark_std::rand::Rng;
 use utils::{
     initialize_blockcrh_config, initialize_publickeycrh_config,
@@ -18,11 +32,12 @@ use utils::{
 };
 
 use crate::datastructures::{
-    block::{Block, BlockHash},
-    keypair::PublicKey,
+    block::{Block, BlockHash, constraints::BlockVar},
+    keypair::{PublicKey, constraints::PublicKeyVar},
     noncemap::Nonce,
-    shieldedtx::ShieldedTransaction,
-    utxo::UTXO,
+    nullifier::Nullifier,
+    shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
+    utxo::{UTXO, constraints::UTXOVar},
 };
 
 pub mod constraints;
@@ -59,28 +74,24 @@ pub fn poseidon_canonical_config<F: PrimeField>() -> PoseidonConfig<F> {
     poseidon_custom_config(full_rounds, partial_rounds, alpha, rate, 1)
 }
 
-pub struct ShieldedTransactionCRH<C: CurveGroup> {
-    _c: PhantomData<C>,
+pub struct IdentityCRH<F: PrimeField> {
+    _f: PhantomData<F>,
 }
 
-// hash(hash(pk), root shielded tx)
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for ShieldedTransactionCRH<C> {
-    type Input = ShieldedTransaction<C>;
-    type Output = C::BaseField;
-    type Parameters = PoseidonConfig<C::BaseField>;
+impl<F: PrimeField> CRHScheme for IdentityCRH<F> {
+    type Input = F;
+    type Output = F;
+    type Parameters = ();
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        // WARNING: this config should be checked and not used in production as is
-        Ok(initialize_shieldedtransactioncrh_config())
+        Ok(())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
         parameters: &Self::Parameters,
         input: T,
     ) -> Result<Self::Output, Error> {
-        let res = input.borrow();
-        let pk_hash = PublicKeyCRH::evaluate(parameters, res.from)?;
-        Ok(CRH::evaluate(parameters, [pk_hash, res.shielded_tx])?)
+        Ok(*input.borrow())
     }
 }
 
@@ -114,6 +125,28 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for PublicKeyCRH<C
             // flag for point is zero is false
             Ok(CRH::evaluate(parameters, [x, y, C::BaseField::ZERO])?)
         }
+    }
+}
+
+pub struct NullifierCRH<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField> CRHScheme for NullifierCRH<F> {
+    type Input = Nullifier<F>;
+    type Output = F;
+    type Parameters = ();
+
+    fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
+        Ok(())
+    }
+
+    fn evaluate<T: Borrow<Self::Input>>(
+        parameters: &Self::Parameters,
+        input: T,
+    ) -> Result<Self::Output, Error> {
+        let nullifier = input.borrow();
+        Ok(nullifier.value)
     }
 }
 
@@ -175,7 +208,6 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for UTXOCRH<C> {
             C::BaseField::from(utxo.amount),
             C::BaseField::from(utxo.is_dummy),
             C::BaseField::from(utxo.salt),
-            C::BaseField::from(utxo.index),
             x,
             y,
             iszero,

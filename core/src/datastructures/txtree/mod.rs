@@ -11,7 +11,7 @@ use ark_ff::PrimeField;
 use crate::{
     TX_TREE_HEIGHT,
     primitives::{
-        crh::ShieldedTransactionCRH,
+        crh::IdentityCRH,
         sparsemt::{MerkleSparseTree, SparseConfig},
     },
 };
@@ -23,20 +23,20 @@ pub mod constraints;
 pub type TransactionTree<P> = MerkleSparseTree<P>;
 
 #[derive(Clone, Debug, Default)]
-pub struct TransactionTreeConfig<C: CurveGroup> {
-    _c: PhantomData<C>,
+pub struct TransactionTreeConfig<F> {
+    _f: PhantomData<F>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> Config for TransactionTreeConfig<C> {
-    type Leaf = ShieldedTransaction<C>;
-    type LeafDigest = C::BaseField;
-    type LeafInnerDigestConverter = IdentityDigestConverter<C::BaseField>;
-    type InnerDigest = C::BaseField;
+impl<F: PrimeField + Absorb> Config for TransactionTreeConfig<F> {
+    type Leaf = F;
+    type LeafDigest = F;
+    type LeafInnerDigestConverter = IdentityDigestConverter<F>;
+    type InnerDigest = F;
     // the leaf hash is identity, since leaves are roots of mt
-    type LeafHash = ShieldedTransactionCRH<C>;
-    type TwoToOneHash = TwoToOneCRH<C::BaseField>;
+    type LeafHash = IdentityCRH<F>;
+    type TwoToOneHash = TwoToOneCRH<F>;
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> SparseConfig for TransactionTreeConfig<C> {
-    const HEIGHT: u64 = TX_TREE_HEIGHT;
+impl<F: PrimeField + Absorb> SparseConfig for TransactionTreeConfig<F> {
+    const HEIGHT: usize = TX_TREE_HEIGHT;
 }
