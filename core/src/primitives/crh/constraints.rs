@@ -12,17 +12,14 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
-use super::{BlockCRH, BlockTreeCRH, NonceCRH, PublicKeyCRH, UTXOCRH};
+use super::{BlockTreeCRH, NonceCRH, PublicKeyCRH, UTXOCRH};
 use crate::{
     datastructures::{
-        block::constraints::{BlockHashVar, BlockVar},
-        keypair::constraints::PublicKeyVar,
-        noncemap::constraints::NonceVar,
-        nullifier::constraints::NullifierVar,
-        shieldedtx::constraints::ShieldedTransactionVar,
-        utxo::constraints::UTXOVar,
+        block::constraints::BlockMetadataVar, keypair::constraints::PublicKeyVar,
+        noncemap::constraints::NonceVar, nullifier::constraints::NullifierVar,
+        shieldedtx::constraints::ShieldedTransactionVar, utxo::constraints::UTXOVar,
     },
-    primitives::crh::{IdentityCRH, NullifierCRH},
+    primitives::crh::{IdentityCRH, IntervalCRH, NullifierCRH},
 };
 
 pub struct IdentityCRHGadget<F: PrimeField> {
@@ -39,6 +36,23 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<IdentityCRH<F>, F> for IdentityCRHG
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
         Ok(input.clone())
+    }
+}
+
+pub struct IntervalCRHGadget<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField + Absorb> CRHSchemeGadget<IntervalCRH<F>, F> for IntervalCRHGadget<F> {
+    type InputVar = (FpVar<F>, FpVar<F>);
+    type OutputVar = FpVar<F>;
+    type ParametersVar = CRHParametersVar<F>;
+
+    fn evaluate(
+        parameters: &Self::ParametersVar,
+        input: &Self::InputVar,
+    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
+        CRHGadget::evaluate(parameters, &[input.0.clone(), input.1.clone()])
     }
 }
 
@@ -89,35 +103,25 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
 }
 
 #[derive(Default)]
-pub struct UTXOVarCRH<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    CVar: CurveVar<C, C::BaseField>,
-> {
-    _c: PhantomData<C>,
-    _cv: PhantomData<CVar>,
-}
+pub struct UTXOVarCRH {}
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    CRHSchemeGadget<UTXOCRH<C>, C::BaseField> for UTXOVarCRH<C, CVar>
-{
-    type InputVar = UTXOVar<C, CVar>;
-    type OutputVar = FpVar<C::BaseField>;
-    type ParametersVar = CRHParametersVar<C::BaseField>;
+impl<F: PrimeField + Absorb> CRHSchemeGadget<UTXOCRH<F>, F> for UTXOVarCRH {
+    type InputVar = UTXOVar<F>;
+    type OutputVar = FpVar<F>;
+    type ParametersVar = CRHParametersVar<F>;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        let bool_as_fp: FpVar<C::BaseField> = input.is_dummy.clone().into();
-        let pk_point = input.pk.key.to_constraint_field()?;
-        let mut input = Vec::from([
-            input.amount.clone(),
+        let bool_as_fp = input.is_dummy.clone().into();
+        let pk_point = input.pk.clone();
+        let input = Vec::from([
+            input.amount.to_fp()?,
             bool_as_fp,
             input.salt.clone(),
+            pk_point,
         ]);
-        for p in pk_point {
-            input.push(p);
-        }
         CRHGadget::evaluate(parameters, &input)
     }
 }
@@ -139,12 +143,12 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<NullifierCRH<F>, F> for NullifierVa
     }
 }
 
-pub struct BlockVarCRH<F: PrimeField> {
+pub struct BlockTreeVarCRH<F: PrimeField> {
     _f: PhantomData<F>,
 }
 
-impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockCRH<F>, F> for BlockVarCRH<F> {
-    type InputVar = BlockVar<F>;
+impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockTreeCRH<F>, F> for BlockTreeVarCRH<F> {
+    type InputVar = BlockMetadataVar<F>;
     type OutputVar = FpVar<F>;
     type ParametersVar = CRHParametersVar<F>;
 
@@ -157,25 +161,9 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockCRH<F>, F> for BlockVarCRH<F> 
             &[
                 input.tx_tree_root.clone(),
                 input.signer_tree_root.clone(),
-                input.height.clone(),
+                input.nullifier_tree_root.clone(),
+                input.height.to_fp()?,
             ],
         )
-    }
-}
-
-pub struct BlockTreeVarCRH<F: PrimeField> {
-    _f: PhantomData<F>,
-}
-
-impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockTreeCRH<F>, F> for BlockTreeVarCRH<F> {
-    type InputVar = BlockHashVar<F>;
-    type OutputVar = FpVar<F>;
-    type ParametersVar = ();
-
-    fn evaluate(
-        _parameters: &Self::ParametersVar,
-        input: &Self::InputVar,
-    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        Ok(input.clone())
     }
 }

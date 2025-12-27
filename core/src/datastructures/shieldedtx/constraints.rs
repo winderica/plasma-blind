@@ -17,27 +17,27 @@ use crate::{
     },
     primitives::{
         crh::constraints::{IdentityCRHGadget, UTXOVarCRH},
-        sparsemt::constraints::SparseConfigGadget,
+        sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
     },
 };
 
 #[derive(Clone, Debug)]
-pub struct ShieldedTransactionVar<C: CurveGroup<BaseField: PrimeField>> {
-    pub input_nullifiers: Vec<NullifierVar<C::BaseField>>,
-    pub output_utxo_commitments: Vec<FpVar<C::BaseField>>,
+pub struct ShieldedTransactionVar<F: PrimeField> {
+    pub input_nullifiers: Vec<NullifierVar<F>>,
+    pub output_utxo_commitments: Vec<FpVar<F>>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> AllocVar<ShieldedTransaction<C>, C::BaseField>
-    for ShieldedTransactionVar<C>
+impl<F: PrimeField> AllocVar<ShieldedTransaction<F>, F>
+    for ShieldedTransactionVar<F>
 {
-    fn new_variable<T: std::borrow::Borrow<ShieldedTransaction<C>>>(
-        cs: impl Into<ark_relations::gr1cs::Namespace<C::BaseField>>,
+    fn new_variable<T: std::borrow::Borrow<ShieldedTransaction<F>>>(
+        cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
         f: impl FnOnce() -> Result<T, ark_relations::gr1cs::SynthesisError>,
         mode: ark_r1cs_std::prelude::AllocationMode,
     ) -> Result<Self, ark_relations::gr1cs::SynthesisError> {
         let cs = cs.into().cs();
         let res = f()?;
-        let tx: &ShieldedTransaction<C> = res.borrow();
+        let tx: &ShieldedTransaction<F> = res.borrow();
         Ok(ShieldedTransactionVar {
             input_nullifiers: Vec::new_variable(cs.clone(), || Ok(&tx.input_nullifiers[..]), mode)?,
             output_utxo_commitments: Vec::new_variable(
@@ -48,6 +48,12 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> AllocVar<ShieldedTransaction
         })
     }
 }
+
+pub type UTXOTreeGadget<F> = MerkleSparseTreeGadget<
+        ShieldedTransactionConfig<F>,
+        F,
+        ShieldedTransactionConfigGadget<F>,
+    >;
 
 #[derive(Clone, Debug)]
 pub struct ShieldedTransactionConfigGadget<F> {

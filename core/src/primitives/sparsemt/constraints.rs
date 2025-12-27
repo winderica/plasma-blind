@@ -19,13 +19,15 @@ use ark_r1cs_std::{
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
 
+use crate::primitives::sparsemt::{MerkleSparseTree, SparseConfig};
+
 pub trait SparseConfigGadget<P: Config, F: PrimeField>: ConfigGadget<P, F> {
     const HEIGHT: usize;
 }
 
 pub struct MerkleSparseTreeGadget<MP: Config, F: PrimeField, P: SparseConfigGadget<MP, F>> {
-    leaf_hash_params: <P::LeafHash as CRHSchemeGadget<MP::LeafHash, F>>::ParametersVar,
-    inner_hash_params:
+    pub leaf_hash_params: <P::LeafHash as CRHSchemeGadget<MP::LeafHash, F>>::ParametersVar,
+    pub inner_hash_params:
         <P::TwoToOneHash as TwoToOneCRHSchemeGadget<MP::TwoToOneHash, F>>::ParametersVar,
 }
 

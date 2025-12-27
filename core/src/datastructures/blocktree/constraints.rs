@@ -11,16 +11,21 @@ use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
 use super::{BLOCK_TREE_HEIGHT, BlockTreeConfig};
 use crate::{
-    datastructures::block::constraints::BlockHashVar,
-    primitives::{crh::constraints::BlockTreeVarCRH, sparsemt::constraints::SparseConfigGadget},
+    datastructures::block::constraints::BlockMetadataVar, primitives::{
+        crh::constraints::BlockTreeVarCRH,
+        sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
+    }
 };
+
+pub type BlockTreeGadget<F> =
+    MerkleSparseTreeGadget<BlockTreeConfig<F>, F, BlockTreeConfigGadget<F>>;
 
 pub struct BlockTreeConfigGadget<F: Absorb + PrimeField> {
     _f: PhantomData<F>,
 }
 
 impl<F: Absorb + PrimeField> ConfigGadget<BlockTreeConfig<F>, F> for BlockTreeConfigGadget<F> {
-    type Leaf = BlockHashVar<F>;
+    type Leaf = BlockMetadataVar<F>;
     type LeafDigest = FpVar<F>;
     type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
     type InnerDigest = FpVar<F>;

@@ -7,16 +7,14 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use std::marker::PhantomData;
 
-use crate::primitives::{
+use crate::{datastructures::block::BlockMetadata, primitives::{
     crh::BlockTreeCRH,
     sparsemt::{MerkleSparseTree, SparseConfig},
-};
-
-use super::block::BlockHash;
+}};
 
 pub mod constraints;
 
-pub type BlockTree<P> = MerkleSparseTree<P>;
+pub type BlockTree<F> = MerkleSparseTree<BlockTreeConfig<F>>;
 
 pub const BLOCK_TREE_HEIGHT: usize = 25;
 
@@ -26,7 +24,7 @@ pub struct BlockTreeConfig<F> {
 }
 
 impl<F: Absorb + PrimeField> Config for BlockTreeConfig<F> {
-    type Leaf = BlockHash<F>;
+    type Leaf = BlockMetadata<F>;
     type LeafDigest = F;
     type LeafInnerDigestConverter = IdentityDigestConverter<F>;
     type InnerDigest = F;

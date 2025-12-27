@@ -23,6 +23,10 @@ ark-relations = { workspace = true }
 
 plasmablind-core = { workspace = true }
 
+sonobe-primitives = { workspace = true }
+sonobe-ivc = { workspace = true }
+sonobe-fs = { workspace = true }
+
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"
 web-time = "1.1.0"

@@ -1,12 +1,10 @@
-use plasmablind_core::{
-    datastructures::{
-        block::Block,
-        keypair::PublicKey,
-        shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-        signerlist::SignerTreeConfig,
-        txtree::TransactionTreeConfig,
-        utxo::UTXO,
-    },
+use plasmablind_core::datastructures::{
+    block::{Block, BlockMetadata},
+    keypair::PublicKey,
+    shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
+    signerlist::SignerTreeConfig,
+    txtree::TransactionTreeConfig,
+    utxo::UTXO,
 };
 
 use ark_crypto_primitives::{merkle_tree::Path, sponge::Absorb};
@@ -19,23 +17,21 @@ pub mod circuits;
 pub type OpeningsMask = Vec<bool>;
 
 #[derive(Clone, Debug)]
-pub struct UserAux<C: CurveGroup<BaseField: PrimeField + Absorb>> {
-    pub block: Block<C::BaseField>,
-    pub from: PublicKey<C>,
+pub struct UserAux<F: PrimeField + Absorb> {
+    pub block: BlockMetadata<F>,
+    pub from: F,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
-    pub utxo_tree_root: C::BaseField,
+    pub utxo_tree_root: F,
     // index of transaction within transaction tree
-    pub tx_index: C::BaseField,
+    pub tx_index: F,
     // output utxos only from shielded tx
-    pub shielded_tx_utxos: Vec<UTXO<C>>,
+    pub shielded_tx_utxos: Vec<UTXO<F>>,
     // openings for utxos
-    pub shielded_tx_utxos_proofs: Vec<(Vec<C::BaseField>, C::BaseField)>,
+    pub shielded_tx_utxos_proofs: Vec<(Vec<F>, F)>,
     // openings mask - indicates if utxo should be opened. should be filled with true when user is sender.
     pub openings_mask: Vec<bool>,
     // inclusion proof showing committed_tx was included in tx tree
-    pub shielded_tx_inclusion_proof: Vec<C::BaseField>,
+    pub shielded_tx_inclusion_proof: Vec<F>,
     // inclusion proof showing committed_tx was signed
-    pub signer_pk_inclusion_proof: Vec<C::BaseField>,
-    pub signer_index: C::BaseField,
-    pub pk: PublicKey<C>,
+    pub signer_pk_inclusion_proof: Vec<F>,
 }

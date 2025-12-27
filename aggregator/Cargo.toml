@@ -10,6 +10,7 @@ ark-std = { workspace = true, features = ["getrandom"] }
 ark-r1cs-std = { workspace = true }
 ark-crypto-primitives = { workspace = true, features = ["constraints", "crh", "sponge"] }
 ark-ec = { workspace = true }
+num-bigint = { workspace = true }
 
 sonobe-fs = { workspace = true }
 sonobe-ivc = { workspace = true }

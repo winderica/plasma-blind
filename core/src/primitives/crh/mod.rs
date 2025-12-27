@@ -31,13 +31,16 @@ use utils::{
     initialize_shieldedtransactioncrh_config, initialize_utxocrh_config,
 };
 
-use crate::datastructures::{
-    block::{Block, BlockHash, constraints::BlockVar},
-    keypair::{PublicKey, constraints::PublicKeyVar},
-    noncemap::Nonce,
-    nullifier::Nullifier,
-    shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
-    utxo::{UTXO, constraints::UTXOVar},
+use crate::{
+    datastructures::{
+        block::{Block, BlockMetadata},
+        keypair::{PublicKey, constraints::PublicKeyVar},
+        noncemap::Nonce,
+        nullifier::Nullifier,
+        shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
+        utxo::{UTXO, constraints::UTXOVar},
+    },
+    primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config,
 };
 
 pub mod constraints;
@@ -92,6 +95,28 @@ impl<F: PrimeField> CRHScheme for IdentityCRH<F> {
         input: T,
     ) -> Result<Self::Output, Error> {
         Ok(*input.borrow())
+    }
+}
+
+pub struct IntervalCRH<F> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField + Absorb> CRHScheme for IntervalCRH<F> {
+    type Input = (F, F);
+    type Output = F;
+    type Parameters = PoseidonConfig<F>;
+
+    fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
+        Ok(initialize_two_to_one_binary_tree_poseidon_config())
+    }
+
+    fn evaluate<T: Borrow<Self::Input>>(
+        parameters: &Self::Parameters,
+        input: T,
+    ) -> Result<Self::Output, Error> {
+        let (l, r) = input.borrow();
+        CRH::evaluate(parameters, [*l, *r])
     }
 }
 
@@ -175,14 +200,14 @@ impl<F: PrimeField + Absorb> CRHScheme for NonceCRH<F> {
     }
 }
 
-pub struct UTXOCRH<C: CurveGroup<BaseField: PrimeField + Absorb>> {
-    _f: PhantomData<C>,
+pub struct UTXOCRH<F> {
+    _f: PhantomData<F>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for UTXOCRH<C> {
-    type Input = UTXO<C>;
-    type Output = C::BaseField;
-    type Parameters = PoseidonConfig<C::BaseField>;
+impl<F: PrimeField + Absorb> CRHScheme for UTXOCRH<F> {
+    type Input = UTXO<F>;
+    type Output = F;
+    type Parameters = PoseidonConfig<F>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
         // WARNING: this config should be checked and not used in production as is
@@ -193,35 +218,24 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for UTXOCRH<C> {
         parameters: &Self::Parameters,
         input: T,
     ) -> Result<Self::Output, Error> {
-        let utxo: &UTXO<C> = input.borrow();
-        let pk_point = utxo.pk.key.into_affine();
-        let (x, y, iszero) = if pk_point.is_zero() {
-            (C::BaseField::ZERO, C::BaseField::ZERO, C::BaseField::ONE)
-        } else {
-            (
-                pk_point.x().unwrap(),
-                pk_point.y().unwrap(),
-                C::BaseField::from(pk_point.is_zero()),
-            )
-        };
+        let utxo: &UTXO<_> = input.borrow();
         let input = [
-            C::BaseField::from(utxo.amount),
-            C::BaseField::from(utxo.is_dummy),
-            C::BaseField::from(utxo.salt),
-            x,
-            y,
-            iszero,
+            F::from(utxo.amount),
+            F::from(utxo.is_dummy),
+            F::from(utxo.salt),
+            utxo.pk,
         ];
         CRH::evaluate(parameters, input)
     }
 }
 
-pub struct BlockCRH<F: PrimeField> {
+pub struct BlockTreeCRH<F: PrimeField> {
     _f: PhantomData<F>,
 }
 
-impl<F: PrimeField + Absorb> CRHScheme for BlockCRH<F> {
-    type Input = Block<F>;
+// identity hash
+impl<F: PrimeField + Absorb> CRHScheme for BlockTreeCRH<F> {
+    type Input = BlockMetadata<F>;
     type Output = F;
     type Parameters = PoseidonConfig<F>;
 
@@ -238,32 +252,10 @@ impl<F: PrimeField + Absorb> CRHScheme for BlockCRH<F> {
         let input = [
             block.tx_tree_root,
             block.signer_tree_root,
+            block.nullifier_tree_root,
             F::from(block.height as u64),
         ];
         CRH::evaluate(parameters, input)
-    }
-}
-
-pub struct BlockTreeCRH<F: PrimeField> {
-    _f: PhantomData<F>,
-}
-
-// identity hash
-impl<F: PrimeField + Absorb> CRHScheme for BlockTreeCRH<F> {
-    type Input = BlockHash<F>;
-    type Output = F;
-    type Parameters = ();
-
-    fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
-        Ok(())
-    }
-
-    fn evaluate<T: Borrow<Self::Input>>(
-        _parameters: &Self::Parameters,
-        input: T,
-    ) -> Result<Self::Output, Error> {
-        let block_hash = input.borrow();
-        Ok(*block_hash)
     }
 }
 

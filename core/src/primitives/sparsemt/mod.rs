@@ -57,6 +57,10 @@ impl<
         two_to_one_hash_params: &<P::TwoToOneHash as TwoToOneCRHScheme>::Parameters,
         leaves: &BTreeMap<usize, P::Leaf>,
     ) -> Result<Self, Error> {
+        if leaves.len() == 0 {
+            return Ok(Self::blank(leaf_hash_params, two_to_one_hash_params));
+        }
+
         let last_level_size = leaves.len().next_power_of_two();
         let tree_size = 2 * last_level_size - 1;
         let tree_height = tree_height(tree_size);
@@ -135,7 +139,11 @@ impl<
     }
 
     /// generate a lookup proof
-    pub fn generate_proof(&self, index: usize, leaf: &P::Leaf) -> Result<Vec<P::InnerDigest>, Error> {
+    pub fn generate_proof(
+        &self,
+        index: usize,
+        leaf: &P::Leaf,
+    ) -> Result<Vec<P::InnerDigest>, Error> {
         let leaf_hash = P::LeafHash::evaluate(&self.leaf_hash_params, leaf)?;
         let tree_height = P::HEIGHT;
         let tree_index = convert_index_to_last_level(index, tree_height);

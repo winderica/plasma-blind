@@ -25,30 +25,47 @@ pub const SHIELDED_TX_TREE_HEIGHT: usize = 3; // 4 outputs
 
 // what's sent to the aggregator
 #[derive(Clone, Debug)]
-pub struct ShieldedTransaction<C: CurveGroup> {
-    pub input_nullifiers: Vec<Nullifier<C::BaseField>>,
-    pub output_utxo_commitments: Vec<C::BaseField>,
+pub struct ShieldedTransaction<F> {
+    pub input_nullifiers: Vec<Nullifier<F>>,
+    pub output_utxo_commitments: Vec<F>,
 }
 
-impl<C: CurveGroup<BaseField: Absorb + PrimeField>> ShieldedTransaction<C> {
+impl<F: Absorb + PrimeField> ShieldedTransaction<F> {
     pub fn new(
-        nullifier_hash_config: &PoseidonConfig<C::BaseField>,
-        utxo_hash_config: &PoseidonConfig<C::BaseField>,
-        sk: &C::BaseField,
-        transparent_tx: &TransparentTransaction<C>,
+        nullifier_hash_config: &PoseidonConfig<F>,
+        utxo_hash_config: &PoseidonConfig<F>,
+        sk: &F,
+        transparent_tx: &TransparentTransaction<F>,
     ) -> Result<Self, Error> {
         Ok((Self {
-            input_nullifiers: transparent_tx.nullifiers(nullifier_hash_config, sk)?,
+            input_nullifiers: transparent_tx
+                .inputs
+                .iter()
+                .zip(&transparent_tx.inputs_info)
+                .map(|(utxo, info)| {
+                    if utxo.is_dummy {
+                        Ok(Nullifier { value: F::zero() })
+                    } else {
+                        Nullifier::new(&nullifier_hash_config, *sk, info)
+                    }
+                })
+                .collect::<Result<_, _>>()?,
             output_utxo_commitments: transparent_tx
-                .outputs()
+                .outputs
                 .into_iter()
-                .map(|i| UTXOCRH::evaluate(utxo_hash_config, i))
+                .map(|i| {
+                    if i.is_dummy {
+                        Ok(F::zero())
+                    } else {
+                        UTXOCRH::evaluate(utxo_hash_config, i)
+                    }
+                })
                 .collect::<Result<Vec<_>, _>>()?,
         }))
     }
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> Default for ShieldedTransaction<C> {
+impl<F: Default + Clone> Default for ShieldedTransaction<F> {
     fn default() -> Self {
         Self {
             input_nullifiers: vec![Default::default(); TX_IO_SIZE],
@@ -56,6 +73,8 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> Default for ShieldedTransact
         }
     }
 }
+
+pub type UTXOTree<F> = MerkleSparseTree<ShieldedTransactionConfig<F>>;
 
 #[derive(Clone, Debug)]
 pub struct ShieldedTransactionConfig<F> {

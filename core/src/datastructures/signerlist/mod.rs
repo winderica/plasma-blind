@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     SIGNER_TREE_HEIGHT,
     primitives::{
-        crh::PublicKeyCRH,
+        crh::{IdentityCRH, PublicKeyCRH},
         sparsemt::{MerkleSparseTree, SparseConfig},
     },
 };
@@ -20,22 +20,22 @@ use super::keypair::PublicKey;
 pub mod constraints;
 
 pub type SignerList = Vec<u32>;
-pub type SignerTree<P> = MerkleSparseTree<P>;
+pub type SignerTree<F> = MerkleSparseTree<SignerTreeConfig<F>>;
 
 #[derive(Clone, Debug, Default)]
-pub struct SignerTreeConfig<C: CurveGroup> {
-    _c: PhantomData<C>,
+pub struct SignerTreeConfig<F> {
+    _f: PhantomData<F>,
 }
 
-impl<C: CurveGroup<BaseField: Absorb + PrimeField>> Config for SignerTreeConfig<C> {
-    type Leaf = PublicKey<C>;
-    type LeafDigest = C::BaseField;
-    type LeafInnerDigestConverter = IdentityDigestConverter<C::BaseField>;
-    type InnerDigest = C::BaseField;
-    type LeafHash = PublicKeyCRH<C>;
-    type TwoToOneHash = TwoToOneCRH<C::BaseField>;
+impl<F: PrimeField + Absorb> Config for SignerTreeConfig<F> {
+    type Leaf = F;
+    type LeafDigest = F;
+    type LeafInnerDigestConverter = IdentityDigestConverter<F>;
+    type InnerDigest = F;
+    type LeafHash = IdentityCRH<F>;
+    type TwoToOneHash = TwoToOneCRH<F>;
 }
 
-impl<C: CurveGroup<BaseField: Absorb + PrimeField>> SparseConfig for SignerTreeConfig<C> {
+impl<F: PrimeField + Absorb> SparseConfig for SignerTreeConfig<F> {
     const HEIGHT: usize = SIGNER_TREE_HEIGHT;
 }

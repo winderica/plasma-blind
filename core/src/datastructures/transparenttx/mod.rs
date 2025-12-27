@@ -6,62 +6,35 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_std::iterable::Iterable;
 
-use crate::datastructures::nullifier::Nullifier;
+use crate::datastructures::{nullifier::Nullifier, utxo::UTXOInfo};
 
 use super::{TX_IO_SIZE, utxo::UTXO};
 
 pub mod constraints;
 
 #[derive(Clone, Debug)]
-pub struct TransparentTransaction<C: CurveGroup> {
-    pub inputs: [UTXO<C>; TX_IO_SIZE],
-    pub outputs: [UTXO<C>; TX_IO_SIZE],
+pub struct TransparentTransaction<F> {
+    pub inputs: [UTXO<F>; TX_IO_SIZE],
+    pub inputs_info: [UTXOInfo<F>; TX_IO_SIZE],
+    pub outputs: [UTXO<F>; TX_IO_SIZE],
 }
 
-impl<C: CurveGroup> Default for TransparentTransaction<C> {
+impl<F: Default + Copy> Default for TransparentTransaction<F> {
     fn default() -> Self {
         let inputs = [UTXO::default(); TX_IO_SIZE];
-        let mut outputs = [UTXO::default(); TX_IO_SIZE];
-        for (i, utxo) in outputs.iter_mut().enumerate() {
-            utxo.index = i as u8;
-        }
-        Self { inputs, outputs }
+        let inputs_info = [UTXOInfo::default(); TX_IO_SIZE];
+        let outputs = [UTXO::default(); TX_IO_SIZE];
+        Self { inputs, inputs_info, outputs }
     }
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> TransparentTransaction<C> {
-    pub fn new(inputs: [UTXO<C>; TX_IO_SIZE], outputs: [UTXO<C>; TX_IO_SIZE]) -> Self {
-        Self { inputs, outputs }
+impl<F: PrimeField + Absorb> TransparentTransaction<F> {
+    pub fn set_input(&mut self, i: usize, utxo: UTXO<F>, info: UTXOInfo<F>) {
+        self.inputs[i] = utxo;
+        self.inputs_info[i] = info;
     }
 
-    pub fn get_default_output_utxos() -> [UTXO<C>; 4] {
-        let mut output = [UTXO::<C>::default(); TX_IO_SIZE];
-        for i in 0..TX_IO_SIZE {
-            output[i].index = i as u8;
-        }
-        output
-    }
-
-    pub fn outputs(&self) -> Vec<UTXO<C>> {
-        self.outputs.to_vec()
-    }
-
-    pub fn nullifiers(
-        &self,
-        pp: &PoseidonConfig<C::BaseField>,
-        sk: &C::BaseField,
-    ) -> Result<Vec<Nullifier<C::BaseField>>, Error> {
-        self.inputs
-            .iter()
-            .map(|utxo| {
-                Nullifier::new(
-                    &pp,
-                    *sk,
-                    utxo.index,
-                    utxo.tx_index.unwrap_or(0) as usize,
-                    utxo.block_height.unwrap_or(0) as usize,
-                )
-            })
-            .collect::<Result<Vec<Nullifier<C::BaseField>>, Error>>()
+    pub fn set_output(&mut self, i: usize, utxo: UTXO<F>) {
+        self.outputs[i] = utxo;
     }
 }

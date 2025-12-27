@@ -9,14 +9,18 @@ use ark_crypto_primitives::{
     sponge::Absorb,
 };
 use ark_ff::PrimeField;
+use ark_r1cs_std::prelude::{Boolean, ToBitsGadget};
+use ark_r1cs_std::uint64::UInt64;
 use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
 use ark_relations::gr1cs::SynthesisError;
 
-use crate::datastructures::nullifier::NullifierTreeConfig;
-use crate::primitives::crh::constraints::NullifierVarCRH;
-use crate::primitives::sparsemt::constraints::SparseConfigGadget;
-
 use super::Nullifier;
+use crate::datastructures::nullifier::NullifierTreeConfig;
+use crate::datastructures::utxo::UTXOInfo;
+use crate::datastructures::utxo::constraints::UTXOInfoVar;
+use crate::primitives::crh::constraints::{IntervalCRHGadget, NullifierVarCRH};
+use crate::primitives::sparsemt::MerkleSparseTree;
+use crate::primitives::sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget};
 
 #[derive(Clone, Debug)]
 pub struct NullifierVar<F: PrimeField> {
@@ -27,12 +31,20 @@ impl<F: PrimeField + Absorb> NullifierVar<F> {
     pub fn new(
         cfg: &CRHParametersVar<F>,
         sk: &FpVar<F>,
-        utxo_idx: FpVar<F>,
-        tx_idx: FpVar<F>,
-        block_height: FpVar<F>,
+        utxo_info: &UTXOInfoVar<F>,
     ) -> Result<Self, SynthesisError> {
+        let digest = CRHGadget::evaluate(
+            cfg,
+            &[
+                sk.clone(),
+                utxo_info.utxo_index.clone(),
+                utxo_info.tx_index.clone(),
+                utxo_info.block_height.clone(),
+            ],
+        )?;
+
         Ok(Self {
-            value: CRHGadget::evaluate(cfg, &[sk.clone(), utxo_idx, tx_idx, block_height])?,
+            value: Boolean::le_bits_to_fp(&digest.to_bits_le()?[1..F::MODULUS_BIT_SIZE as usize])?,
         })
     }
 }
@@ -52,24 +64,27 @@ impl<F: PrimeField> AllocVar<Nullifier<F>, F> for NullifierVar<F> {
     }
 }
 
+pub type NullifierTreeGadgeet<F> =
+    MerkleSparseTreeGadget<NullifierTreeConfig<F>, F, NullifierTreeConfigGadget<F>>;
+
 #[derive(Clone, Debug)]
 pub struct NullifierTreeConfigGadget<F: PrimeField> {
     _f: PhantomData<F>,
 }
 
-impl<F: PrimeField + Absorb>
-    ConfigGadget<NullifierTreeConfig<F>, F> for NullifierTreeConfigGadget<F>
+impl<F: PrimeField + Absorb> ConfigGadget<NullifierTreeConfig<F>, F>
+    for NullifierTreeConfigGadget<F>
 {
-    type Leaf = NullifierVar<F>;
+    type Leaf = (FpVar<F>, FpVar<F>);
     type LeafDigest = FpVar<F>;
     type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
     type InnerDigest = FpVar<F>;
-    type LeafHash = NullifierVarCRH<F>;
+    type LeafHash = IntervalCRHGadget<F>;
     type TwoToOneHash = TwoToOneCRHGadget<F>;
 }
 
-impl<F: PrimeField + Absorb>
-    SparseConfigGadget<NullifierTreeConfig<F>, F> for NullifierTreeConfigGadget<F>
+impl<F: PrimeField + Absorb> SparseConfigGadget<NullifierTreeConfig<F>, F>
+    for NullifierTreeConfigGadget<F>
 {
     const HEIGHT: usize = 32;
 }

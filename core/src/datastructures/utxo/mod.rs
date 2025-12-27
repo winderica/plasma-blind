@@ -16,19 +16,22 @@ pub mod constraints;
 pub mod proof;
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
-pub struct UTXO<C: CurveGroup> {
+pub struct UTXO<F> {
     pub amount: u64,
-    pub pk: PublicKey<C>,
-    pub salt: u128,
-    pub index: u8,
+    pub pk: F,
+    pub salt: F,
     pub is_dummy: bool,
-    pub tx_index: Option<u64>, // indicates the index of the transaction in the
-    // transaction tree at the time this
-    // utxo has been created
-    pub block_height: Option<u64>, // indicates the block at which this utxo was created
 }
 
-impl<C: CurveGroup> Debug for UTXO<C> {
+#[derive(Clone, Debug, Default, Copy, Eq, PartialEq, Hash)]
+pub struct UTXOInfo<F> {
+    pub from: F,
+    pub utxo_index: usize,
+    pub tx_index: usize,
+    pub block_height: usize,
+}
+
+impl<F: Debug> Debug for UTXO<F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_dummy {
             write!(f, "UTXO(dummy)")
@@ -38,59 +41,28 @@ impl<C: CurveGroup> Debug for UTXO<C> {
     }
 }
 
-impl<C: CurveGroup> UTXO<C> {
-    pub fn new(
-        pk: PublicKey<C>,
-        amount: u64,
-        salt: u128,
-        index: u8,
-        tx_index: Option<u64>,
-        block_height: Option<u64>,
-    ) -> Self {
+impl<F: Default> UTXO<F> {
+    pub fn new(pk: F, amount: u64, salt: F) -> Self {
         UTXO {
             amount,
             pk,
             salt,
-            index,
             is_dummy: false,
-            tx_index,
-            block_height,
         }
     }
 
     pub fn dummy() -> Self {
         UTXO {
             amount: 0,
-            pk: PublicKey::default(),
-            salt: 0,
-            index: 0,
+            pk: F::default(),
+            salt: F::default(),
             is_dummy: true,
-            tx_index: None,
-            block_height: None,
         }
     }
 }
 
-impl<C: CurveGroup> Default for UTXO<C> {
+impl<F: Default> Default for UTXO<F> {
     fn default() -> Self {
         UTXO::dummy()
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct UTXOTreeConfig<C: CurveGroup> {
-    _c: PhantomData<C>,
-}
-
-impl<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>> Config for UTXOTreeConfig<C> {
-    type Leaf = UTXO<C>;
-    type LeafDigest = C::BaseField;
-    type LeafInnerDigestConverter = IdentityDigestConverter<C::BaseField>;
-    type InnerDigest = C::BaseField;
-    type LeafHash = UTXOCRH<C>;
-    type TwoToOneHash = TwoToOneCRH<C::BaseField>;
-}
-
-impl<F: PrimeField + Absorb, C: CurveGroup<BaseField = F>> SparseConfig for UTXOTreeConfig<C> {
-    const HEIGHT: usize = 32;
 }

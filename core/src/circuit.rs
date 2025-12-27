@@ -14,13 +14,20 @@ use ark_crypto_primitives::{
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
+    GR1CSVar,
     alloc::{AllocVar, AllocationMode},
     eq::EqGadget,
-    fields::{FieldVar, fp::FpVar},
+    fields::{
+        FieldVar,
+        fp::{AllocatedFp, FpVar},
+    },
     groups::CurveVar,
     prelude::Boolean,
 };
-use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+use ark_relations::{
+    gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
+    lc, lc_diff,
+};
 use ark_std::One;
 
 use crate::{
@@ -46,67 +53,54 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct TransactionValidityCircuit<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    CVar: CurveVar<C, C::BaseField>,
-> {
-    null_sk: C::BaseField, // user secret for nullifier computation
-    null_pk: C::BaseField, // hash of user's secret, which is registered on the L1
-    pk: PublicKey<C>,      // user public key
-    transparent_tx: TransparentTransaction<C>, // transparent transaction
-    shielded_tx: ShieldedTransaction<C>, // shielded transaction (root of tree built from
+pub struct TransactionValidityCircuit<F: PrimeField> {
+    null_sk: F,                                // user secret for nullifier computation
+    null_pk: F, // hash of user's secret, which is registered on the L1
+    transparent_tx: TransparentTransaction<F>, // transparent transaction
+    shielded_tx: ShieldedTransaction<F>, // shielded transaction (root of tree built from
     // transparent tx)
-    input_utxos_proofs: Vec<UTXOProof<C>>, // proof of existence of input
+    block_tree_root: F,
+    input_utxos_proofs: Vec<UTXOProof<F>>, // proof of existence of input
     // utxos
-    plasma_blind_config: PlasmaBlindConfig<C>,
-    _m: PhantomData<CVar>,
+    plasma_blind_config: PlasmaBlindConfig<F>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    TransactionValidityCircuit<C, CVar>
-{
+impl<F: PrimeField> TransactionValidityCircuit<F> {
     pub fn new(
-        null_sk: C::BaseField, // user secret for nullifier computation
-        null_pk: C::BaseField, // hash of user's secret, which is registered on the L1
-        pk: PublicKey<C>,      // user public key
-        transparent_tx: TransparentTransaction<C>, // transparent transaction
-        shielded_tx: ShieldedTransaction<C>, // shielded transaction (root of tree built from
+        null_sk: F,                                // user secret for nullifier computation
+        null_pk: F, // hash of user's secret, which is registered on the L1
+        transparent_tx: TransparentTransaction<F>, // transparent transaction
+        shielded_tx: ShieldedTransaction<F>, // shielded transaction (root of tree built from
         // transparent tx)
-        input_utxos_proofs: Vec<UTXOProof<C>>, // proof of existence of input
+        block_tree_root: F,
+        input_utxos_proofs: Vec<UTXOProof<F>>, // proof of existence of input
         // utxos
-        plasma_blind_config: PlasmaBlindConfig<C>,
+        plasma_blind_config: PlasmaBlindConfig<F>,
     ) -> Self {
         TransactionValidityCircuit {
             null_sk,
             null_pk,
-            pk,
             transparent_tx,
             shielded_tx,
+            block_tree_root,
             input_utxos_proofs,
             plasma_blind_config,
-            _m: PhantomData,
         }
     }
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    ConstraintSynthesizer<C::BaseField> for TransactionValidityCircuit<C, CVar>
-{
-    fn generate_constraints(
-        self,
-        cs: ConstraintSystemRef<C::BaseField>,
-    ) -> Result<(), SynthesisError> {
+impl<F: PrimeField + Absorb> ConstraintSynthesizer<F> for TransactionValidityCircuit<F> {
+    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         let null_sk = FpVar::new_witness(cs.clone(), || Ok(self.null_sk))?;
         let null_pk = FpVar::new_input(cs.clone(), || Ok(self.null_pk))?;
-        let pk = PublicKeyVar::new_input(cs.clone(), || Ok(self.pk))?;
-        let transparent_tx = TransparentTransactionVar::<_, CVar>::new_witness(cs.clone(), || {
-            Ok(self.transparent_tx.clone())
-        })?;
+        let transparent_tx =
+            TransparentTransactionVar::new_witness(cs.clone(), || Ok(self.transparent_tx.clone()))?;
         let shielded_tx =
-            ShieldedTransactionVar::<_>::new_input(cs.clone(), || Ok(self.shielded_tx)).unwrap();
+            ShieldedTransactionVar::<_>::new_input(cs.clone(), || Ok(self.shielded_tx))?;
+        let block_tree_root = FpVar::new_input(cs.clone(), || Ok(self.block_tree_root))?;
 
         let input_utxos_proofs =
-            Vec::<UTXOProofVar<_, _>>::new_witness(cs.clone(), || Ok(self.input_utxos_proofs))?;
+            Vec::<UTXOProofVar<_>>::new_witness(cs.clone(), || Ok(self.input_utxos_proofs))?;
 
         let plasma_blind_config = PlasmaBlindConfigVar::new_variable(
             cs.clone(),
@@ -119,45 +113,28 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
         null_pk_computed.enforce_equal(&null_pk)?;
 
         // checks transparent tx inputs sum up to outputs
-        transparent_tx
-            .inputs
-            .iter()
-            .map(|i| &i.amount)
-            .sum::<FpVar<C::BaseField>>()
-            .enforce_equal(
-                &transparent_tx
-                    .outputs
-                    .iter()
-                    .map(|i| &i.amount)
-                    .sum::<FpVar<C::BaseField>>(),
-            )?;
+        transparent_tx.enforce_valid(&null_pk)?;
 
         for i in 0..TX_IO_SIZE {
-            transparent_tx.inputs[i]
-                .pk
-                .conditional_enforce_equal(&pk, &!transparent_tx.inputs[i].amount.is_zero()?)?;
-
             transparent_tx.inputs[i].is_valid(
                 &null_sk,
-                &transparent_tx.inputs[i].pk,
                 &shielded_tx.input_nullifiers[i],
+                &transparent_tx.inputs_info[i],
                 &input_utxos_proofs[i],
+                &block_tree_root,
                 &plasma_blind_config,
             )?;
 
-            shielded_tx.output_utxo_commitments[i].conditional_enforce_equal(
-                &UTXOVarCRH::evaluate(
-                    &plasma_blind_config.utxo_crh_config,
-                    &transparent_tx.outputs[i],
+            shielded_tx.output_utxo_commitments[i].enforce_equal(
+                &transparent_tx.outputs[i].is_dummy.select(
+                    &FpVar::zero(),
+                    &UTXOVarCRH::evaluate(
+                        &plasma_blind_config.utxo_crh_config,
+                        &transparent_tx.outputs[i],
+                    )?,
                 )?,
-                &!transparent_tx.outputs[i].amount.is_zero()?,
             )?;
         }
-
-        // TODO: move to agg
-        // plasma_blind_config
-        //     .utxo_tree
-        //     .build_root(&shielded_tx.output_utxo_commitments)?;
 
         Ok(())
     }

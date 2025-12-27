@@ -14,51 +14,36 @@ use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 use crate::datastructures::{
     TX_IO_SIZE,
     keypair::{PublicKey, constraints::PublicKeyVar},
-    utxo::constraints::UTXOVar,
+    utxo::constraints::{UTXOInfoVar, UTXOVar},
 };
 
 use super::TransparentTransaction;
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    TryInto<Vec<FpVar<C::BaseField>>> for &TransparentTransactionVar<C, CVar>
-{
-    type Error = SynthesisError;
-    fn try_into(self) -> Result<Vec<FpVar<C::BaseField>>, SynthesisError> {
-        let mut arr = Vec::new();
-        for utxo in self.inputs.iter().chain(&self.outputs) {
-            arr.push(utxo.amount.clone());
-            arr.push(utxo.is_dummy.clone().into());
-            let point = utxo.pk.key.to_constraint_field()?;
-            for p in point {
-                arr.push(p);
-            }
-        }
-        Ok(arr)
-    }
-}
-
 #[derive(Clone, Debug)]
-pub struct TransparentTransactionVar<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
-    CVar: CurveVar<C, C::BaseField>,
-> {
-    pub inputs: [UTXOVar<C, CVar>; TX_IO_SIZE],
-    pub outputs: [UTXOVar<C, CVar>; TX_IO_SIZE],
+pub struct TransparentTransactionVar<F: PrimeField> {
+    pub inputs: [UTXOVar<F>; TX_IO_SIZE],
+    pub inputs_info: [UTXOInfoVar<F>; TX_IO_SIZE],
+    pub outputs: [UTXOVar<F>; TX_IO_SIZE],
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    AllocVar<TransparentTransaction<C>, C::BaseField> for TransparentTransactionVar<C, CVar>
-{
-    fn new_variable<T: Borrow<TransparentTransaction<C>>>(
-        cs: impl Into<Namespace<C::BaseField>>,
+impl<F: PrimeField> AllocVar<TransparentTransaction<F>, F> for TransparentTransactionVar<F> {
+    fn new_variable<T: Borrow<TransparentTransaction<F>>>(
+        cs: impl Into<Namespace<F>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: AllocationMode,
     ) -> Result<Self, SynthesisError> {
         let cs = cs.into().cs();
         let f = f()?;
-        let TransparentTransaction { inputs, outputs } = f.borrow();
+        let TransparentTransaction {
+            inputs,
+            inputs_info,
+            outputs,
+        } = f.borrow();
         Ok(Self {
             inputs: Vec::new_variable(cs.clone(), || Ok(&inputs[..]), mode)?
+                .try_into()
+                .unwrap(),
+            inputs_info: Vec::new_variable(cs.clone(), || Ok(&inputs_info[..]), mode)?
                 .try_into()
                 .unwrap(),
             outputs: Vec::new_variable(cs.clone(), || Ok(&outputs[..]), mode)?
@@ -68,27 +53,24 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     }
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    TransparentTransactionVar<C, CVar>
-{
-    pub fn enforce_valid(&self, sender: &PublicKeyVar<C, CVar>) -> Result<(), SynthesisError> {
+impl<F: PrimeField> TransparentTransactionVar<F> {
+    pub fn enforce_valid(&self, sender: &FpVar<F>) -> Result<(), SynthesisError> {
         for i in &self.inputs {
-            i.pk.key
-                .conditional_enforce_equal(&sender.key, &!&i.is_dummy)?;
+            i.pk.conditional_enforce_equal(&sender, &!&i.is_dummy)?;
         }
         let mut sum = FpVar::zero();
         for i in &self.inputs {
-            sum += i.is_dummy.select(&FpVar::zero(), &i.amount)?;
+            sum += i.is_dummy.select(&FpVar::zero(), &i.amount.to_fp()?)?;
         }
         for o in &self.outputs {
-            sum -= o.is_dummy.select(&FpVar::zero(), &o.amount)?;
+            sum -= o.is_dummy.select(&FpVar::zero(), &o.amount.to_fp()?)?;
         }
         sum.enforce_equal(&FpVar::zero())?;
         Ok(())
     }
 
-    pub fn get_signer(&self) -> Result<PublicKeyVar<C, CVar>, SynthesisError> {
-        let mut pk = PublicKeyVar::new_constant(ConstraintSystemRef::None, PublicKey::default())?;
+    pub fn get_signer(&self) -> Result<FpVar<F>, SynthesisError> {
+        let mut pk = FpVar::zero();
         // Skip dummy UTXOs and return the public key of the last non-dummy UTXO.
         for i in &self.inputs {
             pk = i.is_dummy.select(&pk, &i.pk)?;

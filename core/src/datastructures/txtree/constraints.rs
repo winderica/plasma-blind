@@ -13,19 +13,23 @@ use crate::{
     TX_TREE_HEIGHT,
     datastructures::shieldedtx::constraints::ShieldedTransactionVar,
     primitives::{
-        crh::constraints::{IdentityCRHGadget, ShieldedTransactionVarCRH}, sparsemt::constraints::SparseConfigGadget,
+        crh::constraints::{IdentityCRHGadget, ShieldedTransactionVarCRH},
+        sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
     },
 };
 
 use super::TransactionTreeConfig;
+
+pub type TransactionTreeGadget<F> =
+    MerkleSparseTreeGadget<TransactionTreeConfig<F>, F, TransactionTreeConfigGadget<F>>;
 
 #[derive(Clone, Debug)]
 pub struct TransactionTreeConfigGadget<F> {
     _f: PhantomData<F>,
 }
 
-impl<F: PrimeField + Absorb>
-    ConfigGadget<TransactionTreeConfig<F>, F> for TransactionTreeConfigGadget<F>
+impl<F: PrimeField + Absorb> ConfigGadget<TransactionTreeConfig<F>, F>
+    for TransactionTreeConfigGadget<F>
 {
     // leaves are shielded transactions (i.e. roots of a mt)
     type Leaf = FpVar<F>;
@@ -37,8 +41,7 @@ impl<F: PrimeField + Absorb>
     type TwoToOneHash = TwoToOneCRHGadget<F>;
 }
 
-impl<F: PrimeField + Absorb>
-    SparseConfigGadget<TransactionTreeConfig<F>, F>
+impl<F: PrimeField + Absorb> SparseConfigGadget<TransactionTreeConfig<F>, F>
     for TransactionTreeConfigGadget<F>
 {
     const HEIGHT: usize = TX_TREE_HEIGHT;

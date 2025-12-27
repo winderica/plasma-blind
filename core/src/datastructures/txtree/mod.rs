@@ -20,7 +20,7 @@ use super::shieldedtx::ShieldedTransaction;
 
 pub mod constraints;
 
-pub type TransactionTree<P> = MerkleSparseTree<P>;
+pub type TransactionTree<F> = MerkleSparseTree<TransactionTreeConfig<F>>;
 
 #[derive(Clone, Debug, Default)]
 pub struct TransactionTreeConfig<F> {

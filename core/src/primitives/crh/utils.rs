@@ -20,9 +20,9 @@ pub fn initialize_two_to_one_binary_tree_poseidon_config<F: PrimeField>() -> Pos
 
 // WARNING: this config should be checked and not used in production as is
 pub fn initialize_utxocrh_config<F: PrimeField>() -> PoseidonConfig<F> {
-    let rate = 7;
+    let rate = 4;
     let full_rounds = 8;
-    let partial_rounds = 62;
+    let partial_rounds = 60;
     let alpha = 5; // fixed
     let (ark, mds) = find_poseidon_ark_and_mds::<F>(
         F::MODULUS_BIT_SIZE as u64,
