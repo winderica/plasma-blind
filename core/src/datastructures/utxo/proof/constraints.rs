@@ -27,6 +27,10 @@ use crate::{
             SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig,
             constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
         },
+        txtree::{
+            SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY, TransactionTreeConfig,
+            constraints::{SparseNAryTransactionTreeConfigGadget, TransactionTreeConfigGadget},
+        },
         utxo::constraints::{UTXOInfoVar, UTXOVar},
     },
     primitives::crh::constraints::UTXOVarCRH,
@@ -43,7 +47,14 @@ pub struct UTXOProofVar<F: PrimeField + Absorb> {
         SparseNArySignerTreeConfig<F>,
         SparseNArySignerTreeConfigGadget<F>,
     >,
-    tx_inclusion_proof: Vec<FpVar<F>>,
+    tx_inclusion_proof: NArySparsePathVar<
+        TRANSACTION_TREE_ARITY,
+        TransactionTreeConfig<F>,
+        TransactionTreeConfigGadget<F>,
+        F,
+        SparseNAryTransactionTreeConfig<F>,
+        SparseNAryTransactionTreeConfigGadget<F>,
+    >,
     block_inclusion_proof: NArySparsePathVar<
         BLOCK_TREE_ARITY,
         BlockTreeConfig<F>,
@@ -74,8 +85,9 @@ impl<F: PrimeField + Absorb> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
             || Ok(utxo_proof.signer_path.clone()),
             mode,
         )?;
+
         let tx_inclusion_proof =
-            Vec::new_variable(cs.clone(), || Ok(&utxo_proof.tx_path[..]), mode)?;
+            NArySparsePathVar::new_variable(cs.clone(), || Ok(utxo_proof.tx_path.clone()), mode)?;
 
         let block_inclusion_proof = NArySparsePathVar::new_variable(
             cs.clone(),
@@ -125,14 +137,22 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
         )?;
 
         // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
-        plasma_blind_config.tx_tree.conditionally_check_index(
+        //plasma_blind_config.tx_tree.conditionally_check_index(
+        //    &proof.block.tx_tree_root,
+        //    &utxo_tree_root,
+        //    &info.tx_index,
+        //    &proof.tx_inclusion_proof,
+        //    &is_not_dummy,
+        //)?;
+
+        let is_valid_tx = proof.signer_inclusion_proof.verify_membership(
+            &(),
+            &plasma_blind_config.tx_tree_n_to_one_config,
             &proof.block.tx_tree_root,
             &utxo_tree_root,
-            &info.tx_index,
-            &proof.tx_inclusion_proof,
-            &is_not_dummy,
         )?;
 
+        is_valid_tx.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
         // 3. the transaction tree T has been signed by the sender s
         //info.from
         //    .conditional_enforce_not_equal(&FpVar::zero(), &is_not_dummy)?;

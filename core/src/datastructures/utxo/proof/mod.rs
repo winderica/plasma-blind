@@ -7,7 +7,7 @@ use crate::datastructures::{
     blocktree::{BLOCK_TREE_ARITY, BlockTreeConfig, SparseNAryBlockTreeConfig},
     shieldedtx::SHIELDED_TX_TREE_HEIGHT,
     signerlist::{SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig},
-    txtree::TX_TREE_HEIGHT,
+    txtree::{SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY, TransactionTreeConfig},
 };
 
 pub mod constraints;
@@ -21,7 +21,11 @@ pub struct UTXOProof<F: PrimeField + Absorb> {
     pub utxo_path: Vec<F>,
     pub signer_path:
         NArySparsePath<SIGNER_TREE_ARITY, SignerTreeConfig<F>, SparseNArySignerTreeConfig<F>>,
-    pub tx_path: Vec<F>,
+    pub tx_path: NArySparsePath<
+        TRANSACTION_TREE_ARITY,
+        TransactionTreeConfig<F>,
+        SparseNAryTransactionTreeConfig<F>,
+    >,
     pub block_path:
         NArySparsePath<BLOCK_TREE_ARITY, BlockTreeConfig<F>, SparseNAryBlockTreeConfig<F>>,
 }
@@ -35,7 +39,11 @@ impl<F: PrimeField + Absorb> UTXOProof<F> {
             SignerTreeConfig<F>,
             SparseNArySignerTreeConfig<F>,
         >,
-        tx_inclusion_proof: Vec<F>,
+        tx_inclusion_proof: NArySparsePath<
+            TRANSACTION_TREE_ARITY,
+            TransactionTreeConfig<F>,
+            SparseNAryTransactionTreeConfig<F>,
+        >,
         block_inclusion_proof: NArySparsePath<
             BLOCK_TREE_ARITY,
             BlockTreeConfig<F>,
@@ -58,7 +66,7 @@ impl<F: PrimeField + Absorb> Default for UTXOProof<F> {
             block: Default::default(),
             utxo_path: vec![Default::default(); SHIELDED_TX_TREE_HEIGHT - 1],
             signer_path: Default::default(),
-            tx_path: vec![Default::default(); TX_TREE_HEIGHT - 1],
+            tx_path: Default::default(),
             block_path: Default::default(),
         }
     }

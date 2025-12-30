@@ -1,23 +1,44 @@
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
-    crh::poseidon::constraints::TwoToOneCRHGadget,
+    crh::poseidon::constraints::{CRHGadget, TwoToOneCRHGadget},
     merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
 use ark_ff::PrimeField;
 use ark_r1cs_std::fields::fp::FpVar;
+use nmerkle_trees::sparse::traits::NArySparseConfigGadget;
 
 use crate::primitives::{
     crh::constraints::IdentityCRHGadget,
     sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
 };
 
-use super::TX_TREE_HEIGHT;
 use super::TransactionTreeConfig;
+use super::{
+    NARY_TRANSACTION_TREE_HEIGHT, SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY,
+    TX_TREE_HEIGHT,
+};
 
 pub type TransactionTreeGadget<F> =
     MerkleSparseTreeGadget<TransactionTreeConfig<F>, F, TransactionTreeConfigGadget<F>>;
+
+pub struct SparseNAryTransactionTreeConfigGadget<F: Absorb + PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField + Absorb>
+    NArySparseConfigGadget<
+        TRANSACTION_TREE_ARITY,
+        TransactionTreeConfig<F>,
+        TransactionTreeConfigGadget<F>,
+        F,
+        SparseNAryTransactionTreeConfig<F>,
+    > for SparseNAryTransactionTreeConfigGadget<F>
+{
+    const HEIGHT: u64 = NARY_TRANSACTION_TREE_HEIGHT;
+    type NToOneHash = CRHGadget<F>;
+}
 
 #[derive(Clone, Debug)]
 pub struct TransactionTreeConfigGadget<F> {

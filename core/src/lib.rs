@@ -49,7 +49,7 @@ pub mod tests {
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
             signerlist::{SIGNER_TREE_ARITY, SignerTree, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
-            txtree::TransactionTree,
+            txtree::{SparseNAryTransactionTree, TransactionTree},
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
         },
         primitives::{
@@ -80,10 +80,10 @@ pub mod tests {
         let nullifier_tree_leaf_config = IntervalCRH::setup(&mut rng).unwrap();
         let block_tree_leaf_config = BlockTreeCRH::setup(&mut rng).unwrap();
 
-        let tx_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
         let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let block_tree_n_to_one_config = initialize_n_to_one_config::<BLOCK_TREE_ARITY, Fr>();
+        let tx_tree_n_to_one_config = initialize_n_to_one_config::<SIGNER_TREE_ARITY, Fr>();
         let signer_tree_n_to_one_config = initialize_n_to_one_config::<SIGNER_TREE_ARITY, Fr>();
 
         let config = PlasmaBlindConfig::new(
@@ -92,7 +92,7 @@ pub mod tests {
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
             tx_tree_leaf_config,
-            tx_tree_two_to_one_config,
+            tx_tree_n_to_one_config,
             signer_tree_leaf_config,
             signer_tree_n_to_one_config,
             nullifier_tree_leaf_config,
@@ -146,12 +146,14 @@ pub mod tests {
         signers_in_block[alice_to_bob_tx_index] = alice_pk;
 
         // NOTE: transactions and signer tree are built by the aggregator
-        let transactions_tree = TransactionTree::new(
+        let transactions_tree = SparseNAryTransactionTree::new(
             &config.tx_tree_leaf_config,
-            &config.tx_tree_two_to_one_config,
+            &config.tx_tree_n_to_one_config,
             &BTreeMap::from_iter(transactions_in_block.into_iter().enumerate()),
+            &Fr::default(),
         )
         .unwrap();
+
         let signer_tree = SparseNArySignerTree::new(
             &config.signer_tree_leaf_config,
             &config.signer_tree_n_to_one_config,
@@ -187,8 +189,9 @@ pub mod tests {
         let alice_to_bob_utxo_proof = alice_to_bob_utxo_tree
             .generate_membership_proof(alice_to_bob_utxo_info.utxo_index)
             .unwrap();
+
         let alice_shielded_tx_inclusion_proof = transactions_tree
-            .generate_membership_proof(alice_to_bob_utxo_info.tx_index)
+            .generate_proof(alice_to_bob_utxo_info.tx_index)
             .unwrap();
 
         // 4. signer and block inclusion proof are retrieved by bob from the l1
@@ -199,6 +202,7 @@ pub mod tests {
         let block_inclusion_proof = block_tree
             .generate_proof(alice_to_bob_utxo_info.block_height)
             .unwrap();
+
         assert!(
             block_inclusion_proof
                 .verify(
