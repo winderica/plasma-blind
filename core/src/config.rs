@@ -1,38 +1,16 @@
 use ark_crypto_primitives::{
-    crh::{
-        CRHScheme, CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
-        poseidon::constraints::CRHParametersVar,
-    },
-    merkle_tree::{Config, constraints::ConfigGadget},
+    crh::poseidon::constraints::CRHParametersVar,
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, groups::CurveVar};
+use ark_r1cs_std::alloc::AllocVar;
 
 use crate::{
     datastructures::{
-        blocktree::{
-            BlockTreeConfig,
-            constraints::{BlockTreeConfigGadget, BlockTreeGadget},
-        },
-        shieldedtx::{
-            ShieldedTransactionConfig,
-            constraints::{ShieldedTransactionConfigGadget, UTXOTreeGadget},
-        },
-        signerlist::{
-            SignerTreeConfig,
-            constraints::{SignerTreeConfigGadget, SignerTreeGadget},
-        },
-        txtree::{
-            TransactionTreeConfig,
-            constraints::{TransactionTreeConfigGadget, TransactionTreeGadget},
-        },
+        shieldedtx::constraints::UTXOTreeGadget, signerlist::constraints::SignerTreeGadget,
+        txtree::constraints::TransactionTreeGadget,
     },
-    primitives::sparsemt::{
-        SparseConfig,
-        constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
-    },
+    primitives::sparsemt::constraints::MerkleSparseTreeGadget,
 };
 
 #[derive(Clone)]
@@ -97,7 +75,7 @@ impl<F: PrimeField + Absorb> AllocVar<PlasmaBlindConfig<F>, F> for PlasmaBlindCo
     fn new_variable<T: std::borrow::Borrow<PlasmaBlindConfig<F>>>(
         cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
         f: impl FnOnce() -> Result<T, ark_relations::gr1cs::SynthesisError>,
-        mode: ark_r1cs_std::prelude::AllocationMode,
+        _mode: ark_r1cs_std::prelude::AllocationMode,
     ) -> Result<Self, ark_relations::gr1cs::SynthesisError> {
         let cs = cs.into().cs();
         let t = f()?;
@@ -111,17 +89,17 @@ impl<F: PrimeField + Absorb> AllocVar<PlasmaBlindConfig<F>, F> for PlasmaBlindCo
             AllocVar::new_constant(cs.clone(), &config.block_tree_n_to_one_config)?;
 
         let utxo_tree = MerkleSparseTreeGadget::new(
-            AllocVar::new_constant(cs.clone(), &config.shielded_tx_leaf_config)?,
+            AllocVar::new_constant(cs.clone(), config.shielded_tx_leaf_config)?,
             AllocVar::new_constant(cs.clone(), &config.shielded_tx_two_to_one_config)?,
         );
 
         let tx_tree = MerkleSparseTreeGadget::new(
-            AllocVar::new_constant(cs.clone(), &())?,
+            AllocVar::new_constant(cs.clone(), ())?,
             AllocVar::new_constant(cs.clone(), &config.tx_tree_two_to_one_config)?,
         );
 
         let signer_tree = MerkleSparseTreeGadget::new(
-            AllocVar::new_constant(cs.clone(), &config.signer_tree_leaf_config)?,
+            AllocVar::new_constant(cs.clone(), config.signer_tree_leaf_config)?,
             AllocVar::new_constant(cs.clone(), &config.signer_tree_two_to_one_config)?,
         );
 

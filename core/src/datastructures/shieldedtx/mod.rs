@@ -1,16 +1,15 @@
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
     Error,
     crh::{CRHScheme, TwoToOneCRHScheme, poseidon::TwoToOneCRH},
-    merkle_tree::{Config, IdentityDigestConverter, MerkleTree},
+    merkle_tree::{Config, IdentityDigestConverter},
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 
 use crate::{
-    datastructures::{TX_IO_SIZE, keypair::SecretKey, nullifier::Nullifier},
+    datastructures::{TX_IO_SIZE, nullifier::Nullifier},
     primitives::{
         crh::{IdentityCRH, UTXOCRH},
         sparsemt::{MerkleSparseTree, SparseConfig},
@@ -19,7 +18,7 @@ use crate::{
 
 pub mod constraints;
 
-use super::{keypair::PublicKey, transparenttx::TransparentTransaction, utxo::UTXO};
+use super::transparenttx::TransparentTransaction;
 
 pub const SHIELDED_TX_TREE_HEIGHT: usize = 3; // 4 outputs
 
@@ -37,7 +36,7 @@ impl<F: Absorb + PrimeField> ShieldedTransaction<F> {
         sk: &F,
         transparent_tx: &TransparentTransaction<F>,
     ) -> Result<Self, Error> {
-        Ok((Self {
+        Ok(Self {
             input_nullifiers: transparent_tx
                 .inputs
                 .iter()
@@ -46,7 +45,7 @@ impl<F: Absorb + PrimeField> ShieldedTransaction<F> {
                     if utxo.is_dummy {
                         Ok(Nullifier { value: F::zero() })
                     } else {
-                        Nullifier::new(&nullifier_hash_config, *sk, info)
+                        Nullifier::new(nullifier_hash_config, *sk, info)
                     }
                 })
                 .collect::<Result<_, _>>()?,
@@ -61,7 +60,7 @@ impl<F: Absorb + PrimeField> ShieldedTransaction<F> {
                     }
                 })
                 .collect::<Result<Vec<_>, _>>()?,
-        }))
+        })
     }
 }
 

@@ -5,18 +5,14 @@ use ark_crypto_primitives::{
     merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, groups::CurveVar};
+use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
 
 use super::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransaction, ShieldedTransactionConfig};
 use crate::{
-    datastructures::{
-        keypair::constraints::PublicKeyVar, nullifier::constraints::NullifierVar,
-        utxo::constraints::UTXOVar,
-    },
+    datastructures::nullifier::constraints::NullifierVar,
     primitives::{
-        crh::constraints::{IdentityCRHGadget, UTXOVarCRH},
+        crh::constraints::IdentityCRHGadget,
         sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
     },
 };

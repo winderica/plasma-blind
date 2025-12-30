@@ -46,7 +46,7 @@ impl<
             tree: BTreeMap::new(),
             leaf_hash_params: leaf_hash_params.clone(),
             two_to_one_hash_params: two_to_one_hash_params.clone(),
-            root: Some(empty_hashes[(P::HEIGHT - 1) as usize]),
+            root: Some(empty_hashes[(P::HEIGHT - 1)]),
             empty_hashes,
         }
     }
@@ -57,7 +57,7 @@ impl<
         two_to_one_hash_params: &<P::TwoToOneHash as TwoToOneCRHScheme>::Parameters,
         leaves: &BTreeMap<usize, P::Leaf>,
     ) -> Result<Self, Error> {
-        if leaves.len() == 0 {
+        if leaves.is_empty() {
             return Ok(Self::blank(leaf_hash_params, two_to_one_hash_params));
         }
 
@@ -96,7 +96,7 @@ impl<
                 let left_index = left_child(*current_index);
                 let right_index = right_child(*current_index);
 
-                let empty_hash = empty_hashes[level as usize];
+                let empty_hash = empty_hashes[level];
 
                 let left_hash = tree.get(&left_index).copied().unwrap_or(empty_hash);
                 let right_hash = tree.get(&right_index).copied().unwrap_or(empty_hash);
@@ -193,7 +193,7 @@ impl<
                 *self
                     .tree
                     .get(&sibling(index).unwrap())
-                    .unwrap_or(&self.empty_hashes[i as usize]),
+                    .unwrap_or(&self.empty_hashes[i]),
             );
             index = parent(index).unwrap();
         }
@@ -218,8 +218,8 @@ impl<
                 let left_index = left_child(*current_index);
                 let right_index = right_child(*current_index);
 
-                let mut left_hash = self.empty_hashes[level as usize];
-                let mut right_hash = self.empty_hashes[level as usize];
+                let mut left_hash = self.empty_hashes[level];
+                let mut right_hash = self.empty_hashes[level];
 
                 if self.tree.contains_key(&left_index) {
                     match self.tree.get(&left_index) {

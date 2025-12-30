@@ -1,12 +1,7 @@
-use ark_crypto_primitives::{
-    Error,
-    sponge::{Absorb, poseidon::PoseidonConfig},
-};
-use ark_ec::CurveGroup;
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
-use ark_std::iterable::Iterable;
 
-use crate::datastructures::{nullifier::Nullifier, utxo::UTXOInfo};
+use crate::datastructures::utxo::UTXOInfo;
 
 use super::{TX_IO_SIZE, utxo::UTXO};
 

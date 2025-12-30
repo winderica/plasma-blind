@@ -5,7 +5,6 @@ use ark_crypto_primitives::{
         CRHSchemeGadget,
         poseidon::constraints::{CRHGadget, CRHParametersVar},
     },
-    merkle_tree::{Config, constraints::ConfigGadget},
     sponge::Absorb,
 };
 use ark_ec::CurveGroup;
@@ -16,8 +15,7 @@ use super::{BlockTreeCRH, NonceCRH, PublicKeyCRH, UTXOCRH};
 use crate::{
     datastructures::{
         block::constraints::BlockMetadataVar, keypair::constraints::PublicKeyVar,
-        noncemap::constraints::NonceVar, nullifier::constraints::NullifierVar,
-        shieldedtx::constraints::ShieldedTransactionVar, utxo::constraints::UTXOVar,
+        noncemap::constraints::NonceVar, nullifier::constraints::NullifierVar, utxo::constraints::UTXOVar,
     },
     primitives::crh::{IdentityCRH, IntervalCRH, NullifierCRH},
 };

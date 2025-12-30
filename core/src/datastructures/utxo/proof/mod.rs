@@ -1,25 +1,14 @@
-use ark_crypto_primitives::{
-    merkle_tree::{Config, Path},
-    sponge::Absorb,
-};
-use ark_ec::CurveGroup;
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
 use nmerkle_trees::sparse::NArySparsePath;
 
-use super::UTXO;
 use crate::{
     SIGNER_TREE_HEIGHT, TX_TREE_HEIGHT,
     datastructures::{
-        block::{Block, BlockMetadata},
-        blocktree::{
-            BLOCK_TREE_ARITY, BLOCK_TREE_HEIGHT, BlockTreeConfig, SparseNAryBlockTree,
-            SparseNAryBlockTreeConfig,
-        },
-        keypair::PublicKey,
-        nullifier::Nullifier,
-        shieldedtx::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransaction, ShieldedTransactionConfig},
+        block::BlockMetadata,
+        blocktree::{BLOCK_TREE_ARITY, BlockTreeConfig, SparseNAryBlockTreeConfig},
+        shieldedtx::SHIELDED_TX_TREE_HEIGHT,
     },
-    primitives::sparsemt::SparseConfig,
 };
 
 pub mod constraints;

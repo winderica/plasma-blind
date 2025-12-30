@@ -1,10 +1,7 @@
 // re-using some utilities from https://github.com/privacy-ethereum/sonobe/blob/main/folding-schemes/src/utils/vec.rs
-use crate::{
-    errs::PlasmaBlindError,
-    utils::{hadamard, vec_scalar_mul, vec_sub},
-};
+use crate::errs::PlasmaBlindError;
 use ark_ff::PrimeField;
-use ark_relations::gr1cs::{Matrix, mat_vec_mul};
+use ark_relations::gr1cs::Matrix;
 use ark_std::rand::RngCore;
 use sonobe_primitives::commitments::VectorCommitmentOps;
 

@@ -26,7 +26,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
     EqGadget<C::BaseField> for PublicKeyVar<C, CVar>
 {
     fn is_eq(&self, other: &Self) -> Result<Boolean<C::BaseField>, SynthesisError> {
-        Ok(self.key.is_eq(&other.key)?)
+        self.key.is_eq(&other.key)
     }
 }
 

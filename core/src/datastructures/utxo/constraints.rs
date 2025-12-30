@@ -1,26 +1,16 @@
-use std::{borrow::Borrow, marker::PhantomData};
+use std::borrow::Borrow;
 
-use ark_crypto_primitives::{
-    crh::poseidon::constraints::TwoToOneCRHGadget,
-    merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
-    sponge::Absorb,
-};
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     fields::fp::FpVar,
-    groups::CurveVar,
     prelude::Boolean,
     uint64::UInt64,
 };
 use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use super::UTXO;
-use crate::{
-    datastructures::{keypair::constraints::PublicKeyVar, utxo::UTXOInfo},
-    primitives::{crh::constraints::UTXOVarCRH, sparsemt::constraints::SparseConfigGadget},
-};
+use crate::datastructures::utxo::UTXOInfo;
 
 #[derive(Clone, Debug)]
 pub struct UTXOVar<F: PrimeField> {
@@ -55,7 +45,7 @@ impl<F: PrimeField> AllocVar<UTXO<F>, F> for UTXOVar<F> {
         Ok(Self {
             amount: UInt64::new_variable(cs.clone(), || Ok(amount), mode)?,
             pk: FpVar::new_variable(cs.clone(), || Ok(*pk), mode)?,
-            salt: FpVar::new_variable(cs.clone(), || Ok(F::from(*salt)), mode)?,
+            salt: FpVar::new_variable(cs.clone(), || Ok(*salt), mode)?,
             is_dummy: Boolean::new_variable(cs.clone(), || Ok(is_dummy), mode)?,
         })
     }

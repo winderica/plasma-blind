@@ -1,15 +1,7 @@
 use ark_crypto_primitives::{
-    crh::{
-        CRHSchemeGadget,
-        poseidon::{TwoToOneCRH, constraints::TwoToOneCRHGadget},
-    },
-    merkle_tree::{
-        Config,
-        constraints::{ConfigGadget, PathVar},
-    },
+    crh::CRHSchemeGadget,
     sponge::Absorb,
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
     GR1CSVar,
@@ -19,7 +11,7 @@ use ark_r1cs_std::{
     groups::CurveVar,
     prelude::Boolean,
 };
-use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use ark_relations::gr1cs::SynthesisError;
 use nmerkle_trees::sparse::constraints::NArySparsePathVar;
 use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
 
@@ -32,18 +24,11 @@ use crate::{
             BLOCK_TREE_ARITY, BlockTreeConfig, SparseNAryBlockTreeConfig,
             constraints::{BlockTreeConfigGadget, SparseNAryBlockTreeConfigGadget},
         },
-        keypair::constraints::PublicKeyVar,
         nullifier::constraints::NullifierVar,
-        shieldedtx::{
-            SHIELDED_TX_TREE_HEIGHT, ShieldedTransactionConfig,
-            constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-        },
+        shieldedtx::SHIELDED_TX_TREE_HEIGHT,
         utxo::constraints::{UTXOInfoVar, UTXOVar},
     },
-    primitives::{
-        crh::constraints::UTXOVarCRH,
-        sparsemt::{SparseConfig, constraints::SparseConfigGadget},
-    },
+    primitives::crh::constraints::UTXOVarCRH,
 };
 
 pub struct UTXOProofVar<F: PrimeField + Absorb> {
@@ -123,7 +108,7 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
             &UTXOVarCRH::evaluate(&plasma_blind_config.utxo_crh_config, self)?,
             &info
                 .utxo_index
-                .to_n_bits_le((SHIELDED_TX_TREE_HEIGHT - 1) as usize)?,
+                .to_n_bits_le((SHIELDED_TX_TREE_HEIGHT - 1))?,
             &proof.utxo_inclusion_proof,
         )?;
 
@@ -151,7 +136,7 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
         let is_valid = proof.block_inclusion_proof.verify_membership(
             &plasma_blind_config.block_tree_leaf_config,
             &plasma_blind_config.block_tree_n_to_one_config,
-            &block_tree_root,
+            block_tree_root,
             &proof.block,
         )?;
 
@@ -159,7 +144,7 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
 
         // 5. nullifier computation is correct
         nullifier.value.enforce_equal(&is_not_dummy.select(
-            &NullifierVar::new(&plasma_blind_config.poseidon_config, sk, &info)?.value,
+            &NullifierVar::new(&plasma_blind_config.poseidon_config, sk, info)?.value,
             &FpVar::zero(),
         )?)?;
 

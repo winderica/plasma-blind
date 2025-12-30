@@ -1,16 +1,7 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
-use ark_crypto_primitives::{
-    crh::poseidon::TwoToOneCRH,
-    merkle_tree::{Config, IdentityDigestConverter},
-    sponge::Absorb,
-};
-use ark_ec::CurveGroup;
-use ark_ff::PrimeField;
 
-use crate::primitives::{crh::UTXOCRH, sparsemt::SparseConfig};
 
-use super::keypair::PublicKey;
 
 pub mod constraints;
 pub mod proof;

@@ -10,16 +10,13 @@ use ark_crypto_primitives::{
 };
 use ark_ff::PrimeField;
 use ark_r1cs_std::prelude::{Boolean, ToBitsGadget};
-use ark_r1cs_std::uint64::UInt64;
 use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
 use ark_relations::gr1cs::SynthesisError;
 
 use super::Nullifier;
 use crate::datastructures::nullifier::NullifierTreeConfig;
-use crate::datastructures::utxo::UTXOInfo;
 use crate::datastructures::utxo::constraints::UTXOInfoVar;
-use crate::primitives::crh::constraints::{IntervalCRHGadget, NullifierVarCRH};
-use crate::primitives::sparsemt::MerkleSparseTree;
+use crate::primitives::crh::constraints::IntervalCRHGadget;
 use crate::primitives::sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget};
 
 #[derive(Clone, Debug)]

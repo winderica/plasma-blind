@@ -1,15 +1,8 @@
-use ark_crypto_primitives::{
-    merkle_tree::{Config, constraints::ConfigGadget},
-    sponge::{Absorb, constraints::AbsorbGadget},
-};
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, uint8::UInt8, uint64::UInt64};
-use ark_relations::gr1cs::SynthesisError;
+use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, uint64::UInt64};
 
 use crate::datastructures::block::BlockMetadata;
 
-use super::Block;
 
 // I'm not sure we need the nullifier tree in the block?
 #[derive(Clone, Debug)]

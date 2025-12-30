@@ -1,7 +1,5 @@
 use std::borrow::Borrow;
 
-use ark_crypto_primitives::sponge::Absorb;
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
@@ -9,11 +7,10 @@ use ark_r1cs_std::{
     fields::{FieldVar, fp::FpVar},
     groups::CurveVar,
 };
-use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
+use ark_relations::gr1cs::{Namespace, SynthesisError};
 
 use crate::datastructures::{
     TX_IO_SIZE,
-    keypair::{PublicKey, constraints::PublicKeyVar},
     utxo::constraints::{UTXOInfoVar, UTXOVar},
 };
 
@@ -56,7 +53,7 @@ impl<F: PrimeField> AllocVar<TransparentTransaction<F>, F> for TransparentTransa
 impl<F: PrimeField> TransparentTransactionVar<F> {
     pub fn enforce_valid(&self, sender: &FpVar<F>) -> Result<(), SynthesisError> {
         for i in &self.inputs {
-            i.pk.conditional_enforce_equal(&sender, &!&i.is_dummy)?;
+            i.pk.conditional_enforce_equal(sender, &!&i.is_dummy)?;
         }
         let mut sum = FpVar::zero();
         for i in &self.inputs {

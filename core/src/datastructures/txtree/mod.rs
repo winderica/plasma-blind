@@ -5,7 +5,6 @@ use ark_crypto_primitives::{
     merkle_tree::{Config, IdentityDigestConverter},
     sponge::Absorb,
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 
 use crate::{
@@ -16,7 +15,6 @@ use crate::{
     },
 };
 
-use super::shieldedtx::ShieldedTransaction;
 
 pub mod constraints;
 

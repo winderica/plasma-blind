@@ -199,7 +199,7 @@ impl SchnorrGadget {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, iter::FromIterator};
+    
 
     use ark_bn254::{Fq, Fr};
     use ark_ff::{BigInteger, UniformRand};

@@ -15,24 +15,15 @@ pub mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
     use ark_bn254::{Fr, G1Projective};
-    use ark_crypto_primitives::{
-        crh::{
-            CRHScheme, TwoToOneCRHScheme,
-            poseidon::{CRH, TwoToOneCRH},
-        },
-        merkle_tree::Path,
-        sponge::Absorb,
-    };
-    use ark_ff::{PrimeField, UniformRand};
-    use ark_grumpkin::{
-        Projective as GrumpkinProjective, constraints::GVar as GrumpkinProjectiveVar,
-    };
+    use ark_crypto_primitives::crh::{CRHScheme, poseidon::CRH};
+    use ark_ff::UniformRand;
+
     use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystem};
     use ark_serialize::{CanonicalSerialize, Compress};
     use ark_std::test_rng;
     use sonobe_fs::{
-        DeciderKey, FoldingSchemeDef, FoldingSchemeKeyGenerator, FoldingSchemeOps,
-        FoldingSchemePreprocessor, FoldingSchemeProver,
+        DeciderKey, FoldingSchemeDef, FoldingSchemeKeyGenerator, FoldingSchemePreprocessor,
+        FoldingSchemeProver,
         nova::{
             Nova,
             instances::{IncomingInstance, RunningInstance},
@@ -56,25 +47,21 @@ pub mod tests {
             TX_IO_SIZE,
             block::BlockMetadata,
             blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
-            nullifier::Nullifier,
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::{SignerTree, SignerTreeConfig, constraints::SignerTreeConfigGadget},
+            signerlist::SignerTree,
             transparenttx::TransparentTransaction,
-            txtree::{
-                TransactionTree, TransactionTreeConfig, constraints::TransactionTreeConfigGadget,
-            },
-            user::User,
+            txtree::TransactionTree,
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
         },
         primitives::{
             crh::{
-                BlockTreeCRH, IntervalCRH, PublicKeyCRH, UTXOCRH,
+                BlockTreeCRH, IntervalCRH, UTXOCRH,
                 utils::{
                     initialize_n_to_one_config, initialize_poseidon_config,
                     initialize_two_to_one_binary_tree_poseidon_config,
                 },
             },
-            sparsemt::{MerkleSparseTree, SparseConfig},
+            sparsemt::MerkleSparseTree,
         },
     };
 
@@ -155,9 +142,9 @@ pub mod tests {
 
         // 3. build block where alice's transaction is included
         let mut transactions_in_block = vec![Fr::default(); 8];
-        transactions_in_block[alice_to_bob_tx_index as usize] = alice_to_bob_utxo_tree.root();
+        transactions_in_block[alice_to_bob_tx_index] = alice_to_bob_utxo_tree.root();
         let mut signers_in_block = vec![Fr::default(); 8];
-        signers_in_block[alice_to_bob_tx_index as usize] = alice_pk;
+        signers_in_block[alice_to_bob_tx_index] = alice_pk;
 
         // NOTE: transactions and signer tree are built by the aggregator
         let transactions_tree = TransactionTree::new(
@@ -176,7 +163,7 @@ pub mod tests {
             tx_tree_root: transactions_tree.root(),
             signer_tree_root: signer_tree.root(),
             nullifier_tree_root: Fr::default(),
-            height: block_height as usize,
+            height: block_height,
         };
 
         // NOTE: block tree stored on the l1

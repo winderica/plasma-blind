@@ -5,15 +5,13 @@ use ark_crypto_primitives::{
     merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
+use ark_r1cs_std::fields::fp::FpVar;
 
 use crate::{
     TX_TREE_HEIGHT,
-    datastructures::shieldedtx::constraints::ShieldedTransactionVar,
     primitives::{
-        crh::constraints::{IdentityCRHGadget, ShieldedTransactionVarCRH},
+        crh::constraints::IdentityCRHGadget,
         sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
     },
 };

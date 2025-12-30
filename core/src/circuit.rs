@@ -1,57 +1,24 @@
-use std::marker::PhantomData;
-
 use ark_crypto_primitives::{
-    crh::{
-        CRHSchemeGadget,
-        poseidon::{
-            TwoToOneCRH,
-            constraints::{CRHGadget, TwoToOneCRHGadget},
-        },
-    },
-    merkle_tree::{Config, Path, constraints::PathVar},
+    crh::{CRHSchemeGadget, poseidon::constraints::CRHGadget},
     sponge::Absorb,
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
-    GR1CSVar,
     alloc::{AllocVar, AllocationMode},
     eq::EqGadget,
-    fields::{
-        FieldVar,
-        fp::{AllocatedFp, FpVar},
-    },
-    groups::CurveVar,
-    prelude::Boolean,
+    fields::{FieldVar, fp::FpVar},
 };
-use ark_relations::{
-    gr1cs::{
-        ConstraintSynthesizer, ConstraintSystemRef, LinearCombination, SynthesisError, Variable,
-    },
-    lc, lc_diff,
-};
-use ark_std::One;
+use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 
 use crate::{
     config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
     datastructures::{
         TX_IO_SIZE,
-        keypair::{PublicKey, constraints::PublicKeyVar},
-        nullifier::constraints::NullifierVar,
-        shieldedtx::{
-            ShieldedTransaction, ShieldedTransactionConfig,
-            constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-        },
+        shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
         transparenttx::{TransparentTransaction, constraints::TransparentTransactionVar},
-        utxo::{
-            constraints::UTXOVar,
-            proof::{UTXOProof, constraints::UTXOProofVar},
-        },
+        utxo::proof::{UTXOProof, constraints::UTXOProofVar},
     },
-    primitives::{
-        crh::constraints::UTXOVarCRH,
-        sparsemt::{SparseConfig, constraints::SparseConfigGadget},
-    },
+    primitives::crh::constraints::UTXOVarCRH,
 };
 
 #[derive(Clone)]

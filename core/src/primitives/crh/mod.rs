@@ -1,44 +1,37 @@
 // Define the various CRH used in PlasmaFold
-use std::{borrow::Borrow, fmt::Debug, marker::PhantomData};
+use std::{borrow::Borrow, marker::PhantomData};
 
 use ark_crypto_primitives::{
     Error,
     crh::{
         CRHScheme, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
-        poseidon::{
-            CRH, TwoToOneCRH,
-            constraints::{CRHGadget, TwoToOneCRHGadget},
-        },
+        poseidon::CRH,
     },
     sponge::{
         Absorb,
         constraints::CryptographicSpongeVar,
-        poseidon::{PoseidonConfig, constraints::PoseidonSpongeVar, find_poseidon_ark_and_mds},
+        poseidon::{PoseidonConfig, find_poseidon_ark_and_mds},
     },
 };
 use ark_ec::{
-    AdditiveGroup, AffineRepr, CurveConfig, CurveGroup,
-    short_weierstrass::{Projective, SWCurveConfig},
+    AdditiveGroup, AffineRepr, CurveGroup,
 };
-use ark_ff::{Field, Fp, FpConfig, One, PrimeField, ToConstraintField, Zero};
+use ark_ff::{Field, FpConfig, PrimeField, Zero};
 use ark_r1cs_std::{
-    GR1CSVar, convert::ToConstraintFieldGadget, fields::fp::FpVar, groups::CurveVar,
+    GR1CSVar, groups::CurveVar,
 };
-use ark_relations::gr1cs::SynthesisError;
 use ark_std::rand::Rng;
 use utils::{
-    initialize_blockcrh_config, initialize_publickeycrh_config,
-    initialize_shieldedtransactioncrh_config, initialize_utxocrh_config,
+    initialize_blockcrh_config, initialize_publickeycrh_config, initialize_utxocrh_config,
 };
 
 use crate::{
     datastructures::{
-        block::{Block, BlockMetadata},
-        keypair::{PublicKey, constraints::PublicKeyVar},
+        block::BlockMetadata,
+        keypair::PublicKey,
         noncemap::Nonce,
         nullifier::Nullifier,
-        shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
-        utxo::{UTXO, constraints::UTXOVar},
+        utxo::UTXO,
     },
     primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config,
 };
@@ -222,7 +215,7 @@ impl<F: PrimeField + Absorb> CRHScheme for UTXOCRH<F> {
         let input = [
             F::from(utxo.amount),
             F::from(utxo.is_dummy),
-            F::from(utxo.salt),
+            utxo.salt,
             utxo.pk,
         ];
         CRH::evaluate(parameters, input)

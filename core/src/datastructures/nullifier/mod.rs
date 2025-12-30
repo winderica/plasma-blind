@@ -14,7 +14,7 @@ use sonobe_primitives::traits::Inputize;
 
 use crate::{
     NULLIFIER_TREE_HEIGHT, datastructures::utxo::UTXOInfo, primitives::{
-        crh::{IntervalCRH, NullifierCRH},
+        crh::IntervalCRH,
         sparsemt::{MerkleSparseTree, SparseConfig},
     }
 };

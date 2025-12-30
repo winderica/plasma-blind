@@ -1,25 +1,20 @@
-use std::{borrow::Borrow, marker::PhantomData, ops::Not};
 
 use ark_crypto_primitives::{
     crh::{
         CRHSchemeGadget, TwoToOneCRHSchemeGadget,
-        poseidon::{TwoToOneCRH, constraints::TwoToOneCRHGadget},
     },
     merkle_tree::{Config, constraints::ConfigGadget},
-    sponge::Absorb,
 };
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
-    GR1CSVar,
-    alloc::{AllocVar, AllocationMode},
     eq::EqGadget,
     fields::fp::FpVar,
-    prelude::{Boolean, ToBitsGadget},
+    prelude::Boolean,
 };
-use ark_relations::gr1cs::{Namespace, SynthesisError};
+use ark_relations::gr1cs::SynthesisError;
 use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
 
-use crate::primitives::sparsemt::{MerkleSparseTree, SparseConfig};
+use crate::primitives::sparsemt::SparseConfig;
 
 pub trait SparseConfigGadget<P: Config, F: PrimeField>: ConfigGadget<P, F> {
     const HEIGHT: usize;
@@ -73,12 +68,12 @@ impl<
         index: &impl ToBitsGadgetExt<F>,
         proof: &[P::InnerDigest],
     ) -> Result<Boolean<F>, SynthesisError> {
-        self.recover_root(leaf, &index.to_n_bits_le((P::HEIGHT - 1) as usize)?, proof)?
-            .is_eq(&root)
+        self.recover_root(leaf, &index.to_n_bits_le((P::HEIGHT - 1))?, proof)?
+            .is_eq(root)
     }
 
     pub fn build_root(&self, leaves: &[P::Leaf]) -> Result<P::InnerDigest, SynthesisError> {
-        assert_eq!(leaves.len(), 1 << (P::HEIGHT - 1) as usize);
+        assert_eq!(leaves.len(), 1 << (P::HEIGHT - 1));
 
         let mut hashes = leaves
             .iter()
@@ -101,7 +96,7 @@ impl<
         index_bits: &[Boolean<F>],
         proof: &[P::InnerDigest],
     ) -> Result<P::InnerDigest, SynthesisError> {
-        assert_eq!(proof.len(), (P::HEIGHT - 1) as usize);
+        assert_eq!(proof.len(), ((P::HEIGHT - 1)));
 
         let mut hash = P::LeafHash::evaluate(&self.leaf_hash_params, leaf)?;
         for (neighbor, neighbor_is_left) in proof.iter().zip(index_bits) {
@@ -123,7 +118,7 @@ impl<
         proof: &[P::InnerDigest],
         should_enforce: &Boolean<F>,
     ) -> Result<(), SynthesisError> {
-        self.recover_root(leaf, &index.to_n_bits_le((P::HEIGHT - 1) as usize)?, proof)?
+        self.recover_root(leaf, &index.to_n_bits_le((P::HEIGHT - 1))?, proof)?
             .conditional_enforce_equal(root, should_enforce)
     }
 
@@ -135,7 +130,7 @@ impl<
         index: &FpVar<F>,
         proof: &[P::InnerDigest],
     ) -> Result<(P::InnerDigest, P::InnerDigest), SynthesisError> {
-        let index_bits = index.to_n_bits_le((P::HEIGHT - 1) as usize)?;
+        let index_bits = index.to_n_bits_le((P::HEIGHT - 1))?;
         Ok((
             self.recover_root(old_leaf, &index_bits, proof)?,
             self.recover_root(new_leaf, &index_bits, proof)?,
