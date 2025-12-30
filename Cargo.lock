@@ -97,7 +97,7 @@ dependencies = [
 [[package]]
 name = "ark-ec"
 version = "0.5.0"
-source = "git+https://github.com/arkworks-rs/algebra#c1f4f5665504154a9de2345f464b0b3da72c28ec"
+source = "git+https://github.com/arkworks-rs/algebra#598a5fbabc1903c7bab6668ef8812bfdf2158723"
 dependencies = [
  "ahash",
  "ark-ff",
@@ -118,7 +118,7 @@ dependencies = [
 [[package]]
 name = "ark-ff"
 version = "0.5.0"
-source = "git+https://github.com/arkworks-rs/algebra#c1f4f5665504154a9de2345f464b0b3da72c28ec"
+source = "git+https://github.com/arkworks-rs/algebra#598a5fbabc1903c7bab6668ef8812bfdf2158723"
 dependencies = [
  "ark-ff-asm",
  "ark-ff-macros",
@@ -135,7 +135,7 @@ dependencies = [
 [[package]]
 name = "ark-ff-asm"
 version = "0.5.0"
-source = "git+https://github.com/arkworks-rs/algebra#c1f4f5665504154a9de2345f464b0b3da72c28ec"
+source = "git+https://github.com/arkworks-rs/algebra#598a5fbabc1903c7bab6668ef8812bfdf2158723"
 dependencies = [
  "quote",
  "syn 2.0.108",
@@ -144,7 +144,7 @@ dependencies = [
 [[package]]
 name = "ark-ff-macros"
 version = "0.5.0"
-source = "git+https://github.com/arkworks-rs/algebra#c1f4f5665504154a9de2345f464b0b3da72c28ec"
+source = "git+https://github.com/arkworks-rs/algebra#598a5fbabc1903c7bab6668ef8812bfdf2158723"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -168,7 +168,7 @@ dependencies = [
 [[package]]
 name = "ark-poly"
 version = "0.5.0"
-source = "git+https://github.com/arkworks-rs/algebra#c1f4f5665504154a9de2345f464b0b3da72c28ec"
+source = "git+https://github.com/arkworks-rs/algebra#598a5fbabc1903c7bab6668ef8812bfdf2158723"
 dependencies = [
  "ahash",
  "ark-ff",
@@ -251,7 +251,7 @@ dependencies = [
 [[package]]
 name = "ark-serialize"
 version = "0.5.0"
-source = "git+https://github.com/arkworks-rs/algebra#c1f4f5665504154a9de2345f464b0b3da72c28ec"
+source = "git+https://github.com/arkworks-rs/algebra#598a5fbabc1903c7bab6668ef8812bfdf2158723"
 dependencies = [
  "ark-serialize-derive",
  "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
@@ -264,7 +264,7 @@ dependencies = [
 [[package]]
 name = "ark-serialize-derive"
 version = "0.5.0"
-source = "git+https://github.com/arkworks-rs/algebra#c1f4f5665504154a9de2345f464b0b3da72c28ec"
+source = "git+https://github.com/arkworks-rs/algebra#598a5fbabc1903c7bab6668ef8812bfdf2158723"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -738,6 +738,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nmerkle-trees"
+version = "0.1.0"
+source = "git+https://github.com/dmpierre/ark-nmerkle-trees#e552797ee923c6301d86360900788b95e1da11b1"
+dependencies = [
+ "ark-crypto-primitives",
+ "ark-ff",
+ "ark-r1cs-std",
+ "ark-relations 0.5.1 (git+https://github.com/arkworks-rs/snark)",
+ "ark-serialize",
+ "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -807,6 +820,7 @@ dependencies = [
  "ark-relations 0.5.1 (git+https://github.com/arkworks-rs/snark)",
  "ark-serialize",
  "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
+ "nmerkle-trees",
  "sonobe-fs",
  "sonobe-ivc",
  "sonobe-primitives",

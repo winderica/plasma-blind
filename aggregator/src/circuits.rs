@@ -897,7 +897,7 @@ mod tests {
         // 2. build fake block 0
         let mut block_tree = BlockTree::blank(
             &config.block_tree_leaf_config,
-            &config.block_tree_two_to_one_config,
+            &config.block_tree_n_to_one_config,
         );
 
         let block_height = 0;

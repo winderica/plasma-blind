@@ -25,7 +25,9 @@ use ark_r1cs_std::{
     prelude::Boolean,
 };
 use ark_relations::{
-    gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
+    gr1cs::{
+        ConstraintSynthesizer, ConstraintSystemRef, LinearCombination, SynthesisError, Variable,
+    },
     lc, lc_diff,
 };
 use ark_std::One;
@@ -53,7 +55,7 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct TransactionValidityCircuit<F: PrimeField> {
+pub struct TransactionValidityCircuit<F: PrimeField + Absorb> {
     null_sk: F,                                // user secret for nullifier computation
     null_pk: F, // hash of user's secret, which is registered on the L1
     transparent_tx: TransparentTransaction<F>, // transparent transaction
@@ -65,7 +67,7 @@ pub struct TransactionValidityCircuit<F: PrimeField> {
     plasma_blind_config: PlasmaBlindConfig<F>,
 }
 
-impl<F: PrimeField> TransactionValidityCircuit<F> {
+impl<F: PrimeField + Absorb> TransactionValidityCircuit<F> {
     pub fn new(
         null_sk: F,                                // user secret for nullifier computation
         null_pk: F, // hash of user's secret, which is registered on the L1

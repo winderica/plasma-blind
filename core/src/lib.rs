@@ -54,8 +54,8 @@ pub mod tests {
         config::PlasmaBlindConfig,
         datastructures::{
             TX_IO_SIZE,
-            block::{Block, BlockMetadata},
-            blocktree::{BlockTree, BlockTreeConfig},
+            block::BlockMetadata,
+            blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
             nullifier::Nullifier,
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
             signerlist::{SignerTree, SignerTreeConfig, constraints::SignerTreeConfigGadget},
@@ -70,7 +70,8 @@ pub mod tests {
             crh::{
                 BlockTreeCRH, IntervalCRH, PublicKeyCRH, UTXOCRH,
                 utils::{
-                    initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
+                    initialize_n_to_one_config, initialize_poseidon_config,
+                    initialize_two_to_one_binary_tree_poseidon_config,
                 },
             },
             sparsemt::{MerkleSparseTree, SparseConfig},
@@ -97,7 +98,7 @@ pub mod tests {
         let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
         let signer_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
-        let block_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+        let block_tree_n_to_one_config = initialize_n_to_one_config::<BLOCK_TREE_ARITY, Fr>();
 
         let config = PlasmaBlindConfig::new(
             poseidon_config.clone(),
@@ -110,8 +111,8 @@ pub mod tests {
             signer_tree_two_to_one_config,
             nullifier_tree_leaf_config,
             nullifier_tree_two_to_one_config,
-            block_tree_leaf_config,
-            block_tree_two_to_one_config,
+            block_tree_leaf_config.clone(),
+            block_tree_n_to_one_config.clone(),
         );
 
         // 1. Define users
@@ -179,10 +180,11 @@ pub mod tests {
         };
 
         // NOTE: block tree stored on the l1
-        let block_tree = BlockTree::new(
-            &config.block_tree_leaf_config,
-            &config.block_tree_two_to_one_config,
+        let block_tree = SparseNAryBlockTree::new(
+            &block_tree_leaf_config,
+            &block_tree_n_to_one_config,
             &BTreeMap::from_iter([prev_block.clone()].into_iter().enumerate()),
+            &BlockMetadata::default(),
         )
         .unwrap();
 
@@ -207,8 +209,18 @@ pub mod tests {
             .generate_membership_proof(alice_to_bob_utxo_info.tx_index)
             .unwrap();
         let block_inclusion_proof = block_tree
-            .generate_membership_proof(alice_to_bob_utxo_info.block_height)
+            .generate_proof(alice_to_bob_utxo_info.block_height)
             .unwrap();
+        assert!(
+            block_inclusion_proof
+                .verify(
+                    &block_tree.leaf_hash_param,
+                    &block_tree_n_to_one_config.clone(),
+                    &block_tree.root(),
+                    prev_block.clone(),
+                )
+                .unwrap()
+        );
 
         // 5. prepare bob to alice transaction utxos. first utxo input is alice's utxo to bob
         // the last utxo output is bob's utxo to alice
@@ -229,14 +241,14 @@ pub mod tests {
         .unwrap();
 
         // 7. prepare proof for the input utxo from alice
-        let mut bob_input_utxos_proofs = vec![UTXOProof::default(); 4];
+        let mut bob_input_utxos_proofs = vec![UTXOProof::default(); TX_IO_SIZE];
 
         let utxo_from_alice_proof = UTXOProof::new(
             prev_block,
             alice_to_bob_utxo_proof,
             alice_signer_inclusion_proof,
             alice_shielded_tx_inclusion_proof,
-            block_inclusion_proof,
+            block_inclusion_proof.clone(),
         );
         bob_input_utxos_proofs[0] = utxo_from_alice_proof;
 

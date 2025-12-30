@@ -19,7 +19,8 @@ use ark_r1cs_std::{
     groups::CurveVar,
     prelude::Boolean,
 };
-use ark_relations::gr1cs::SynthesisError;
+use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use nmerkle_trees::sparse::constraints::NArySparsePathVar;
 use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
 
 use super::UTXOProof;
@@ -27,7 +28,10 @@ use crate::{
     config::PlasmaBlindConfigVar,
     datastructures::{
         block::constraints::BlockMetadataVar,
-        blocktree::{BlockTreeConfig, constraints::BlockTreeConfigGadget},
+        blocktree::{
+            BLOCK_TREE_ARITY, BlockTreeConfig, SparseNAryBlockTreeConfig,
+            constraints::{BlockTreeConfigGadget, SparseNAryBlockTreeConfigGadget},
+        },
         keypair::constraints::PublicKeyVar,
         nullifier::constraints::NullifierVar,
         shieldedtx::{
@@ -42,15 +46,22 @@ use crate::{
     },
 };
 
-pub struct UTXOProofVar<F: PrimeField> {
+pub struct UTXOProofVar<F: PrimeField + Absorb> {
     block: BlockMetadataVar<F>,
     utxo_inclusion_proof: Vec<FpVar<F>>,
     signer_inclusion_proof: Vec<FpVar<F>>,
     tx_inclusion_proof: Vec<FpVar<F>>,
-    block_inclusion_proof: Vec<FpVar<F>>,
+    block_inclusion_proof: NArySparsePathVar<
+        BLOCK_TREE_ARITY,
+        BlockTreeConfig<F>,
+        BlockTreeConfigGadget<F>,
+        F,
+        SparseNAryBlockTreeConfig<F>,
+        SparseNAryBlockTreeConfigGadget<F>,
+    >,
 }
 
-impl<F: PrimeField> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
+impl<F: PrimeField + Absorb> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
     fn new_variable<T: std::borrow::Borrow<UTXOProof<F>>>(
         cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
@@ -69,8 +80,11 @@ impl<F: PrimeField> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
         let tx_inclusion_proof =
             Vec::new_variable(cs.clone(), || Ok(&utxo_proof.tx_path[..]), mode)?;
 
-        let block_inclusion_proof =
-            Vec::new_variable(cs.clone(), || Ok(utxo_proof.block_path.clone()), mode)?;
+        let block_inclusion_proof = NArySparsePathVar::new_variable(
+            cs.clone(),
+            || Ok(utxo_proof.block_path.clone()),
+            mode,
+        )?;
 
         Ok(UTXOProofVar {
             block,
@@ -134,13 +148,14 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
         )?;
 
         // 4. block is contained within the block tree
-        plasma_blind_config.block_tree.conditionally_check_index(
+        let is_valid = proof.block_inclusion_proof.verify_membership(
+            &plasma_blind_config.block_tree_leaf_config,
+            &plasma_blind_config.block_tree_n_to_one_config,
             &block_tree_root,
             &proof.block,
-            &info.block_height,
-            &proof.block_inclusion_proof,
-            &is_not_dummy,
         )?;
+
+        is_valid.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
 
         // 5. nullifier computation is correct
         nullifier.value.enforce_equal(&is_not_dummy.select(

@@ -192,7 +192,7 @@ impl<
 
         // compute block hash and update accumulator value
         let next_block_hash = BlockTreeVarCRH::evaluate(
-            &self.plasma_blind_config.block_tree.leaf_hash_params,
+            &self.plasma_blind_config.block_tree_leaf_config,
             &aux.block,
         )?;
         let next_acc = A::update(&self.acc_pp, &acc, &block_hash)?;
