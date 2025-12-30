@@ -23,8 +23,8 @@ pub type SparseNAryBlockTree<F> =
     NAryMerkleSparseTree<BLOCK_TREE_ARITY, BlockTreeConfig<F>, SparseNAryBlockTreeConfig<F>>;
 
 pub const BLOCK_TREE_HEIGHT: usize = 25;
-pub const BLOCK_TREE_ARITY: usize = 3;
-pub const NARY_BLOCK_TREE_HEIGHT: u64 = 14;
+pub const BLOCK_TREE_ARITY: usize = 5;
+pub const NARY_BLOCK_TREE_HEIGHT: u64 = 9;
 
 #[derive(Default, Clone, Debug)]
 pub struct BlockTreeConfig<F> {

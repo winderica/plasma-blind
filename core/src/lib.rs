@@ -5,8 +5,7 @@ pub mod errs;
 pub mod primitives;
 pub mod utils;
 
-pub const TX_TREE_HEIGHT: usize = 13;
-pub const SIGNER_TREE_HEIGHT: usize = TX_TREE_HEIGHT;
+pub const SIGNER_TREE_HEIGHT: usize = datastructures::txtree::TX_TREE_HEIGHT;
 pub const NULLIFIER_TREE_HEIGHT: usize = 32;
 
 #[cfg(test)]
@@ -48,7 +47,7 @@ pub mod tests {
             block::BlockMetadata,
             blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::SignerTree,
+            signerlist::{SignerTree, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
             txtree::TransactionTree,
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
@@ -153,10 +152,11 @@ pub mod tests {
             &BTreeMap::from_iter(transactions_in_block.into_iter().enumerate()),
         )
         .unwrap();
-        let signer_tree = SignerTree::new(
+        let signer_tree = SparseNArySignerTree::new(
             &config.signer_tree_leaf_config,
-            &config.signer_tree_two_to_one_config,
+            &config.signer_tree_n_to_one_config,
             &BTreeMap::from_iter(signers_in_block.into_iter().enumerate()),
+            &Fr::default(),
         )
         .unwrap();
         let prev_block = BlockMetadata {
@@ -193,8 +193,9 @@ pub mod tests {
 
         // 4. signer and block inclusion proof are retrieved by bob from the l1
         let alice_signer_inclusion_proof = signer_tree
-            .generate_membership_proof(alice_to_bob_utxo_info.tx_index)
+            .generate_proof(alice_to_bob_utxo_info.tx_index)
             .unwrap();
+
         let block_inclusion_proof = block_tree
             .generate_proof(alice_to_bob_utxo_info.block_height)
             .unwrap();

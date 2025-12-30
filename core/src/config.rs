@@ -22,7 +22,7 @@ pub struct PlasmaBlindConfig<F: PrimeField> {
     pub tx_tree_leaf_config: (),            // crh config for tx tree
     pub tx_tree_two_to_one_config: PoseidonConfig<F>, // 2-to-1 config for tx tree
     pub signer_tree_leaf_config: (),        // crh config for signer tree
-    pub signer_tree_two_to_one_config: PoseidonConfig<F>, // 2-to-1 config for signer tree
+    pub signer_tree_n_to_one_config: PoseidonConfig<F>, // 2-to-1 config for signer tree
     pub nullifier_tree_leaf_config: PoseidonConfig<F>,
     pub nullifier_tree_two_to_one_config: PoseidonConfig<F>,
     pub block_tree_leaf_config: PoseidonConfig<F>, // crh config for block tree
@@ -38,7 +38,7 @@ impl<F: PrimeField> PlasmaBlindConfig<F> {
         tx_tree_leaf_config: (),            // crh config for tx tree
         tx_tree_two_to_one_config: PoseidonConfig<F>, // 2-to-1 config for tx tree
         signer_tree_leaf_config: (),        // crh config for signer tree
-        signer_tree_two_to_one_config: PoseidonConfig<F>, // 2-to-1 config for signer tree
+        signer_tree_n_to_one_config: PoseidonConfig<F>, // 2-to-1 config for signer tree
         nullifier_tree_leaf_config: PoseidonConfig<F>,
         nullifier_tree_two_to_one_config: PoseidonConfig<F>,
         block_tree_leaf_config: PoseidonConfig<F>, // crh config for block tree
@@ -52,7 +52,7 @@ impl<F: PrimeField> PlasmaBlindConfig<F> {
             tx_tree_leaf_config,
             tx_tree_two_to_one_config,
             signer_tree_leaf_config,
-            signer_tree_two_to_one_config,
+            signer_tree_n_to_one_config,
             nullifier_tree_leaf_config,
             nullifier_tree_two_to_one_config,
             block_tree_leaf_config,
@@ -64,11 +64,11 @@ impl<F: PrimeField> PlasmaBlindConfig<F> {
 pub struct PlasmaBlindConfigVar<F: PrimeField + Absorb> {
     pub poseidon_config: CRHParametersVar<F>, // poseidon config, used for both h(utxo) and h(sk)
     pub utxo_crh_config: CRHParametersVar<F>, // crh config for block hash
+    pub signer_tree_n_to_one_config: CRHParametersVar<F>,
     pub block_tree_leaf_config: CRHParametersVar<F>,
     pub block_tree_n_to_one_config: CRHParametersVar<F>,
     pub utxo_tree: UTXOTreeGadget<F>,
     pub tx_tree: TransactionTreeGadget<F>,
-    pub signer_tree: SignerTreeGadget<F>,
 }
 
 impl<F: PrimeField + Absorb> AllocVar<PlasmaBlindConfig<F>, F> for PlasmaBlindConfigVar<F> {
@@ -98,10 +98,8 @@ impl<F: PrimeField + Absorb> AllocVar<PlasmaBlindConfig<F>, F> for PlasmaBlindCo
             AllocVar::new_constant(cs.clone(), &config.tx_tree_two_to_one_config)?,
         );
 
-        let signer_tree = MerkleSparseTreeGadget::new(
-            AllocVar::new_constant(cs.clone(), config.signer_tree_leaf_config)?,
-            AllocVar::new_constant(cs.clone(), &config.signer_tree_two_to_one_config)?,
-        );
+        let signer_tree_n_to_one_config =
+            AllocVar::new_constant(cs.clone(), &config.signer_tree_n_to_one_config)?;
 
         Ok(Self {
             poseidon_config,
@@ -110,7 +108,7 @@ impl<F: PrimeField + Absorb> AllocVar<PlasmaBlindConfig<F>, F> for PlasmaBlindCo
             block_tree_n_to_one_config,
             utxo_tree,
             tx_tree,
-            signer_tree,
+            signer_tree_n_to_one_config,
         })
     }
 }

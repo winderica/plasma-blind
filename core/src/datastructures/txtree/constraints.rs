@@ -8,14 +8,12 @@ use ark_crypto_primitives::{
 use ark_ff::PrimeField;
 use ark_r1cs_std::fields::fp::FpVar;
 
-use crate::{
-    TX_TREE_HEIGHT,
-    primitives::{
-        crh::constraints::IdentityCRHGadget,
-        sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
-    },
+use crate::primitives::{
+    crh::constraints::IdentityCRHGadget,
+    sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
 };
 
+use super::TX_TREE_HEIGHT;
 use super::TransactionTreeConfig;
 
 pub type TransactionTreeGadget<F> =

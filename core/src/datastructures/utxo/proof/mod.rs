@@ -2,13 +2,12 @@ use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
 use nmerkle_trees::sparse::NArySparsePath;
 
-use crate::{
-    SIGNER_TREE_HEIGHT, TX_TREE_HEIGHT,
-    datastructures::{
-        block::BlockMetadata,
-        blocktree::{BLOCK_TREE_ARITY, BlockTreeConfig, SparseNAryBlockTreeConfig},
-        shieldedtx::SHIELDED_TX_TREE_HEIGHT,
-    },
+use crate::datastructures::{
+    block::BlockMetadata,
+    blocktree::{BLOCK_TREE_ARITY, BlockTreeConfig, SparseNAryBlockTreeConfig},
+    shieldedtx::SHIELDED_TX_TREE_HEIGHT,
+    signerlist::{SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig},
+    txtree::TX_TREE_HEIGHT,
 };
 
 pub mod constraints;
@@ -20,7 +19,8 @@ pub mod constraints;
 pub struct UTXOProof<F: PrimeField + Absorb> {
     pub block: BlockMetadata<F>,
     pub utxo_path: Vec<F>,
-    pub signer_path: Vec<F>,
+    pub signer_path:
+        NArySparsePath<SIGNER_TREE_ARITY, SignerTreeConfig<F>, SparseNArySignerTreeConfig<F>>,
     pub tx_path: Vec<F>,
     pub block_path:
         NArySparsePath<BLOCK_TREE_ARITY, BlockTreeConfig<F>, SparseNAryBlockTreeConfig<F>>,
@@ -30,7 +30,11 @@ impl<F: PrimeField + Absorb> UTXOProof<F> {
     pub fn new(
         block: BlockMetadata<F>,
         utxo_inclusion_proof: Vec<F>,
-        signer_inclusion_proof: Vec<F>,
+        signer_inclusion_proof: NArySparsePath<
+            SIGNER_TREE_ARITY,
+            SignerTreeConfig<F>,
+            SparseNArySignerTreeConfig<F>,
+        >,
         tx_inclusion_proof: Vec<F>,
         block_inclusion_proof: NArySparsePath<
             BLOCK_TREE_ARITY,
@@ -53,7 +57,7 @@ impl<F: PrimeField + Absorb> Default for UTXOProof<F> {
         Self {
             block: Default::default(),
             utxo_path: vec![Default::default(); SHIELDED_TX_TREE_HEIGHT - 1],
-            signer_path: vec![Default::default(); SIGNER_TREE_HEIGHT - 1],
+            signer_path: Default::default(),
             tx_path: vec![Default::default(); TX_TREE_HEIGHT - 1],
             block_path: Default::default(),
         }

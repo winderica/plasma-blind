@@ -23,8 +23,8 @@ pub type SignerTree<F> = MerkleSparseTree<SignerTreeConfig<F>>;
 pub type SparseNArySignerTree<F> =
     NAryMerkleSparseTree<SIGNER_TREE_ARITY, SignerTreeConfig<F>, SparseNArySignerTreeConfig<F>>;
 
-pub const SIGNER_TREE_ARITY: usize = 3;
-pub const NARY_SIGNER_TREE_HEIGHT: u64 = 6;
+pub const SIGNER_TREE_ARITY: usize = 7;
+pub const NARY_SIGNER_TREE_HEIGHT: u64 = 5;
 
 #[derive(Clone, Debug, Default)]
 pub struct SignerTreeConfig<F> {

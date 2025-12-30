@@ -7,14 +7,11 @@ use ark_crypto_primitives::{
 };
 use ark_ff::PrimeField;
 
-use crate::{
-    TX_TREE_HEIGHT,
-    primitives::{
-        crh::IdentityCRH,
-        sparsemt::{MerkleSparseTree, SparseConfig},
-    },
+pub const TX_TREE_HEIGHT: usize = 12;
+use crate::primitives::{
+    crh::IdentityCRH,
+    sparsemt::{MerkleSparseTree, SparseConfig},
 };
-
 
 pub mod constraints;
 

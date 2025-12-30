@@ -1,7 +1,4 @@
-use ark_crypto_primitives::{
-    crh::CRHSchemeGadget,
-    sponge::Absorb,
-};
+use ark_crypto_primitives::{crh::CRHSchemeGadget, sponge::Absorb};
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
     GR1CSVar,
@@ -26,6 +23,10 @@ use crate::{
         },
         nullifier::constraints::NullifierVar,
         shieldedtx::SHIELDED_TX_TREE_HEIGHT,
+        signerlist::{
+            SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig,
+            constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
+        },
         utxo::constraints::{UTXOInfoVar, UTXOVar},
     },
     primitives::crh::constraints::UTXOVarCRH,
@@ -34,7 +35,14 @@ use crate::{
 pub struct UTXOProofVar<F: PrimeField + Absorb> {
     block: BlockMetadataVar<F>,
     utxo_inclusion_proof: Vec<FpVar<F>>,
-    signer_inclusion_proof: Vec<FpVar<F>>,
+    signer_inclusion_proof: NArySparsePathVar<
+        SIGNER_TREE_ARITY,
+        SignerTreeConfig<F>,
+        SignerTreeConfigGadget<F>,
+        F,
+        SparseNArySignerTreeConfig<F>,
+        SparseNArySignerTreeConfigGadget<F>,
+    >,
     tx_inclusion_proof: Vec<FpVar<F>>,
     block_inclusion_proof: NArySparsePathVar<
         BLOCK_TREE_ARITY,
@@ -60,8 +68,12 @@ impl<F: PrimeField + Absorb> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
 
         let utxo_inclusion_proof =
             Vec::new_variable(cs.clone(), || Ok(&utxo_proof.utxo_path[..]), mode)?;
-        let signer_inclusion_proof =
-            Vec::new_variable(cs.clone(), || Ok(&utxo_proof.signer_path[..]), mode)?;
+
+        let signer_inclusion_proof = NArySparsePathVar::new_variable(
+            cs.clone(),
+            || Ok(utxo_proof.signer_path.clone()),
+            mode,
+        )?;
         let tx_inclusion_proof =
             Vec::new_variable(cs.clone(), || Ok(&utxo_proof.tx_path[..]), mode)?;
 
@@ -122,15 +134,24 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
         )?;
 
         // 3. the transaction tree T has been signed by the sender s
-        info.from
-            .conditional_enforce_not_equal(&FpVar::zero(), &is_not_dummy)?;
-        plasma_blind_config.signer_tree.conditionally_check_index(
+        //info.from
+        //    .conditional_enforce_not_equal(&FpVar::zero(), &is_not_dummy)?;
+        //plasma_blind_config.signer_tree.conditionally_check_index(
+        //    &proof.block.signer_tree_root,
+        //    &info.from,
+        //    &info.tx_index,
+        //    &proof.signer_inclusion_proof,
+        //    &is_not_dummy,
+        //)?;
+
+        let is_valid_signer = proof.signer_inclusion_proof.verify_membership(
+            &(),
+            &plasma_blind_config.signer_tree_n_to_one_config,
             &proof.block.signer_tree_root,
             &info.from,
-            &info.tx_index,
-            &proof.signer_inclusion_proof,
-            &is_not_dummy,
         )?;
+
+        is_valid_signer.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
 
         // 4. block is contained within the block tree
         let is_valid = proof.block_inclusion_proof.verify_membership(
