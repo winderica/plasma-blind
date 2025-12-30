@@ -47,7 +47,7 @@ pub mod tests {
             block::BlockMetadata,
             blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::{SignerTree, SparseNArySignerTree},
+            signerlist::{SIGNER_TREE_ARITY, SignerTree, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
             txtree::TransactionTree,
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
@@ -82,9 +82,9 @@ pub mod tests {
 
         let tx_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
-        let signer_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let block_tree_n_to_one_config = initialize_n_to_one_config::<BLOCK_TREE_ARITY, Fr>();
+        let signer_tree_n_to_one_config = initialize_n_to_one_config::<SIGNER_TREE_ARITY, Fr>();
 
         let config = PlasmaBlindConfig::new(
             poseidon_config.clone(),
@@ -94,7 +94,7 @@ pub mod tests {
             tx_tree_leaf_config,
             tx_tree_two_to_one_config,
             signer_tree_leaf_config,
-            signer_tree_two_to_one_config,
+            signer_tree_n_to_one_config,
             nullifier_tree_leaf_config,
             nullifier_tree_two_to_one_config,
             block_tree_leaf_config.clone(),
