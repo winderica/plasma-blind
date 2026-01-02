@@ -1,7 +1,4 @@
-use ark_crypto_primitives::{
-    crh::poseidon::constraints::CRHParametersVar,
-    sponge::{Absorb, poseidon::PoseidonConfig},
-};
+use ark_crypto_primitives::{crh::poseidon::constraints::CRHParametersVar, sponge::Absorb};
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
@@ -15,35 +12,20 @@ use ark_relations::gr1cs::{
 };
 use ark_std::{borrow::Borrow, fmt::Debug, marker::PhantomData, rand::RngCore};
 use num_bigint::BigUint;
-use plasmablind_core::{
-    NULLIFIER_TREE_HEIGHT, TX_TREE_HEIGHT,
-    datastructures::signerlist::constraints::SignerTreeGadget,
+use plasmablind_core::datastructures::shieldedtx::constraints::UTXOTreeGadget;
+use plasmablind_core::datastructures::{
+    TX_IO_SIZE,
+    shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
+};
+use plasmablind_core::datastructures::{
+    signerlist::NARY_SIGNER_TREE_HEIGHT,
+    txtree::{NARY_TRANSACTION_TREE_HEIGHT, constraints::TransactionTreeGadget},
 };
 use plasmablind_core::{
-    SIGNER_TREE_HEIGHT, datastructures::txtree::constraints::TransactionTreeGadget,
+    NULLIFIER_TREE_HEIGHT, datastructures::signerlist::constraints::SignerTreeGadget,
 };
 use plasmablind_core::{
     config::PlasmaBlindConfig, datastructures::nullifier::constraints::NullifierTreeGadgeet,
-};
-use plasmablind_core::{
-    datastructures::shieldedtx::constraints::UTXOTreeGadget, primitives::sparsemt::SparseConfig,
-};
-use plasmablind_core::{
-    datastructures::{
-        TX_IO_SIZE,
-        keypair::{PublicKey, constraints::PublicKeyVar},
-        nullifier::{
-            Nullifier, NullifierTreeConfig,
-            constraints::{NullifierTreeConfigGadget, NullifierVar},
-        },
-        shieldedtx::{
-            constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-            {ShieldedTransaction, ShieldedTransactionConfig},
-        },
-        signerlist::{SignerTreeConfig, constraints::SignerTreeConfigGadget},
-        txtree::{TransactionTreeConfig, constraints::TransactionTreeConfigGadget},
-    },
-    primitives::sparsemt::constraints::MerkleSparseTreeGadget,
 };
 use sonobe_fs::{
     DeciderKey, FoldingInstance, FoldingInstanceVar, FoldingSchemeDef, FoldingSchemeGadgetDef,
@@ -393,7 +375,10 @@ impl<
             nullifier_intervals: Default::default(),
 
             next_tx_index: Default::default(),
-            tx_tree_inclusion_proof: vec![Default::default(); TX_TREE_HEIGHT - 1],
+            tx_tree_inclusion_proof: vec![
+                Default::default();
+                NARY_TRANSACTION_TREE_HEIGHT as usize - 1
+            ],
             nullifier_tree_replacement_proofs: [
                 vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
                 vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
@@ -408,7 +393,10 @@ impl<
             ],
             nullifier_tree_replacement_positions: Default::default(),
             nullifier_tree_insertion_positions: Default::default(),
-            signer_tree_update_proof: vec![Default::default(); SIGNER_TREE_HEIGHT - 1],
+            signer_tree_update_proof: vec![
+                Default::default();
+                NARY_SIGNER_TREE_HEIGHT as usize - 1
+            ],
 
             rng: R::default(),
         }
@@ -756,16 +744,17 @@ mod tests {
         circuit::TransactionValidityCircuit,
         datastructures::{
             block::BlockMetadata,
-            blocktree::BlockTree,
+            blocktree::{BLOCK_TREE_ARITY, BlockTree, SparseNAryBlockTree},
             shieldedtx::UTXOTree,
-            signerlist::SignerTree,
+            signerlist::{SIGNER_TREE_ARITY, SignerTree, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
-            txtree::TransactionTree,
+            txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY, TransactionTree},
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
         },
         primitives::crh::{
-            BlockTreeCRH, IntervalCRH, UTXOCRH,
+            BlockTreeCRH, BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
             utils::{
+                initialize_griffin_config, initialize_n_to_one_config_griffin,
                 initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
             },
         },
@@ -807,33 +796,38 @@ mod tests {
         // poseidon crh only for now, should be configurable in the future
         let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
         let poseidon_config = initialize_poseidon_config::<Fr>();
+        let griffin_config = initialize_griffin_config::<Fr>();
 
         let utxo_crh_config = UTXOCRH::setup(&mut rng).unwrap();
         let shielded_tx_leaf_config = ();
         let tx_tree_leaf_config = ();
         let signer_tree_leaf_config = ();
         let nullifier_tree_leaf_config = IntervalCRH::setup(&mut rng).unwrap();
-        let block_tree_leaf_config = BlockTreeCRH::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = BlockTreeCRHGriffin::setup(&mut rng).unwrap();
 
-        let tx_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
-        let signer_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
-        let block_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+        let block_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<BLOCK_TREE_ARITY, Fr>();
+        let tx_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<TRANSACTION_TREE_ARITY, Fr>();
+        let signer_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<SIGNER_TREE_ARITY, Fr>();
 
         let config = PlasmaBlindConfig::new(
             poseidon_config.clone(),
+            griffin_config.clone(),
             utxo_crh_config,
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
             tx_tree_leaf_config,
-            tx_tree_two_to_one_config,
+            tx_tree_n_to_one_config,
             signer_tree_leaf_config,
-            signer_tree_two_to_one_config,
+            signer_tree_n_to_one_config,
             nullifier_tree_leaf_config,
             nullifier_tree_two_to_one_config,
-            block_tree_leaf_config,
-            block_tree_two_to_one_config,
+            block_tree_leaf_config.clone(),
+            block_tree_n_to_one_config.clone(),
         );
 
         let user_circuit = TransactionValidityCircuit::new(
@@ -895,10 +889,12 @@ mod tests {
         let mut user_utxos = BTreeMap::from_iter(user_pks.iter().map(|pk| (*pk, HashMap::new())));
 
         // 2. build fake block 0
-        let mut block_tree = BlockTree::blank(
+        let mut block_tree = SparseNAryBlockTree::blank(
             &config.block_tree_leaf_config,
             &config.block_tree_n_to_one_config,
-        );
+            &BlockMetadata::default(),
+        )
+        .unwrap();
 
         let block_height = 0;
 
@@ -923,7 +919,7 @@ mod tests {
                 }
 
                 let shielded_tx = ShieldedTransaction::new(
-                    &config.poseidon_config,
+                    &config.griffin_config,
                     &config.utxo_crh_config,
                     &user_sks[sender_index],
                     &tx,
@@ -961,18 +957,23 @@ mod tests {
                 signers.insert(signers.len(), user_pks[sender_index]);
             }
         }
-        let transactions_tree = TransactionTree::new(
+
+        let transactions_tree = SparseNAryTransactionTree::new(
             &config.tx_tree_leaf_config,
-            &config.tx_tree_two_to_one_config,
+            &config.tx_tree_n_to_one_config,
             &transactions,
+            &Fr::default(),
         )
         .unwrap();
-        let signer_tree = SignerTree::new(
+
+        let signer_tree = SparseNArySignerTree::new(
             &config.signer_tree_leaf_config,
-            &config.signer_tree_two_to_one_config,
+            &config.signer_tree_n_to_one_config,
             &signers,
+            &Fr::default(),
         )
         .unwrap();
+
         let prev_block = BlockMetadata {
             tx_tree_root: transactions_tree.root(),
             signer_tree_root: signer_tree.root(),
@@ -982,10 +983,10 @@ mod tests {
         let block_inclusion_proof = block_tree.update_and_prove(block_height, &prev_block)?;
 
         let transaction_inclusion_proofs = (0..transactions.len())
-            .map(|i| transactions_tree.generate_membership_proof(i))
+            .map(|i| transactions_tree.generate_proof(i))
             .collect::<Result<Vec<_>, _>>()?;
         let signer_inclusion_proofs = (0..signers.len())
-            .map(|i| signer_tree.generate_membership_proof(i))
+            .map(|i| signer_tree.generate_proof(i))
             .collect::<Result<Vec<_>, _>>()?;
 
         // 3. real block 1
@@ -1044,7 +1045,7 @@ mod tests {
                     );
 
                     let shielded_tx = ShieldedTransaction::new(
-                        &config.poseidon_config,
+                        &config.griffin_config,
                         &config.utxo_crh_config,
                         &user_sks[sender_index],
                         &tx,

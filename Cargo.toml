@@ -16,9 +16,9 @@ ark-snark = { git = "https://github.com/arkworks-rs/snark", default-features = f
 ark-std = { git = "https://github.com/arkworks-rs/std", default-features = false }
 ark-bn254 = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
 ark-grumpkin = { git = "https://github.com/arkworks-rs/algebra", default-features = false }
-sonobe-fs = { path = "/Users/pierredm/repos/forks/dmpierre/sonobe/wip/fs/" }
-sonobe-ivc = { path = "/Users/pierredm/repos/forks/dmpierre/sonobe/wip/ivc/" }
-sonobe-primitives = { path = "/Users/pierredm/repos/forks/dmpierre/sonobe/wip/primitives/" }
+sonobe-fs = { git = "https://github.com/dmpierre/sonobe", rev = "8269ea4de10b8b63fec0e34c6752d50636b909a3" }
+sonobe-ivc = { git = "https://github.com/dmpierre/sonobe", rev = "8269ea4de10b8b63fec0e34c6752d50636b909a3" }
+sonobe-primitives = { git = "https://github.com/dmpierre/sonobe", rev = "8269ea4de10b8b63fec0e34c6752d50636b909a3" }
 thiserror = "2.0.16"
 num-bigint = { version = "0.4.3" }
 nmerkle-trees = { git = "https://github.com/dmpierre/ark-nmerkle-trees" }

@@ -1080,6 +1080,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 [[package]]
 name = "sonobe-fs"
 version = "0.1.0"
+source = "git+https://github.com/dmpierre/sonobe?rev=8269ea4de10b8b63fec0e34c6752d50636b909a3#8269ea4de10b8b63fec0e34c6752d50636b909a3"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ec",
@@ -1098,6 +1099,7 @@ dependencies = [
 [[package]]
 name = "sonobe-ivc"
 version = "0.1.0"
+source = "git+https://github.com/dmpierre/sonobe?rev=8269ea4de10b8b63fec0e34c6752d50636b909a3#8269ea4de10b8b63fec0e34c6752d50636b909a3"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ec",
@@ -1114,6 +1116,7 @@ dependencies = [
 [[package]]
 name = "sonobe-primitives"
 version = "0.1.0"
+source = "git+https://github.com/dmpierre/sonobe?rev=8269ea4de10b8b63fec0e34c6752d50636b909a3#8269ea4de10b8b63fec0e34c6752d50636b909a3"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ec",
