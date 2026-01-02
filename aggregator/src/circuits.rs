@@ -6,16 +6,18 @@ use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     eq::EqGadget,
     fields::{FieldVar, fp::FpVar},
+    prelude::Boolean,
 };
 use ark_relations::gr1cs::{
     ConstraintSystem, ConstraintSystemRef, Namespace, SynthesisError, SynthesisMode,
 };
 use ark_std::{borrow::Borrow, fmt::Debug, marker::PhantomData, rand::RngCore};
+use nmerkle_trees::sparse::{NArySparsePath, constraints::NArySparsePathVar};
 use num_bigint::BigUint;
-use plasmablind_core::datastructures::shieldedtx::constraints::UTXOTreeGadget;
 use plasmablind_core::datastructures::{
-    TX_IO_SIZE,
-    shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
+    shieldedtx::constraints::UTXOTreeGadget,
+    signerlist::constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
+    txtree::{TRANSACTION_TREE_ARITY, TransactionTreeConfig},
 };
 use plasmablind_core::datastructures::{
     signerlist::NARY_SIGNER_TREE_HEIGHT,
@@ -26,6 +28,18 @@ use plasmablind_core::{
 };
 use plasmablind_core::{
     config::PlasmaBlindConfig, datastructures::nullifier::constraints::NullifierTreeGadgeet,
+};
+use plasmablind_core::{
+    config::PlasmaBlindConfigVar,
+    datastructures::{
+        TX_IO_SIZE,
+        shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
+        signerlist::{SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig},
+        txtree::{
+            SparseNAryTransactionTreeConfig,
+            constraints::{SparseNAryTransactionTreeConfigGadget, TransactionTreeConfigGadget},
+        },
+    },
 };
 use sonobe_fs::{
     DeciderKey, FoldingInstance, FoldingInstanceVar, FoldingSchemeDef, FoldingSchemeGadgetDef,
@@ -169,7 +183,8 @@ impl<
         tx_root.absorb_into(dest)?;
         nullifier_root.absorb_into(dest)?;
         signer_root.absorb_into(dest)?;
-        block_root.absorb_into(dest)
+        block_root.absorb_into(dest)?;
+        Ok(())
     }
 }
 
@@ -272,14 +287,22 @@ pub struct AggregatorCircuitExternalInputs<
 
     pub nullifier_intervals: [(FS1::TranscriptField, FS1::TranscriptField); TX_IO_SIZE],
 
-    pub tx_tree_inclusion_proof: Vec<FS1::TranscriptField>,
+    pub tx_tree_inclusion_proof: NArySparsePath<
+        TRANSACTION_TREE_ARITY,
+        TransactionTreeConfig<FS1::TranscriptField>,
+        SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
+    >,
     pub next_tx_index: usize,
 
     pub nullifier_tree_replacement_proofs: [Vec<FS1::TranscriptField>; TX_IO_SIZE],
     pub nullifier_tree_insertion_proofs: [Vec<FS1::TranscriptField>; TX_IO_SIZE],
     pub nullifier_tree_replacement_positions: [usize; TX_IO_SIZE],
     pub nullifier_tree_insertion_positions: [usize; TX_IO_SIZE],
-    pub signer_tree_update_proof: Vec<FS1::TranscriptField>,
+    pub signer_tree_inclusion_proof: NArySparsePath<
+        SIGNER_TREE_ARITY,
+        SignerTreeConfig<FS1::TranscriptField>,
+        SparseNArySignerTreeConfig<FS1::TranscriptField>,
+    >,
 
     pub rng: R,
 }
@@ -375,10 +398,7 @@ impl<
             nullifier_intervals: Default::default(),
 
             next_tx_index: Default::default(),
-            tx_tree_inclusion_proof: vec![
-                Default::default();
-                NARY_TRANSACTION_TREE_HEIGHT as usize - 1
-            ],
+            tx_tree_inclusion_proof: Default::default(),
             nullifier_tree_replacement_proofs: [
                 vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
                 vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
@@ -393,12 +413,8 @@ impl<
             ],
             nullifier_tree_replacement_positions: Default::default(),
             nullifier_tree_insertion_positions: Default::default(),
-            signer_tree_update_proof: vec![
-                Default::default();
-                NARY_SIGNER_TREE_HEIGHT as usize - 1
-            ],
-
             rng: R::default(),
+            signer_tree_inclusion_proof: Default::default(),
         }
     }
 
@@ -449,9 +465,9 @@ impl<
             nullifier_tree_insertion_proofs,
             nullifier_tree_replacement_positions,
             nullifier_tree_insertion_positions,
-            signer_tree_update_proof,
 
             mut rng,
+            signer_tree_inclusion_proof,
         } = external_inputs;
         let U = <FS1::Gadget as FoldingSchemeGadgetDef>::RU::new_witness(cs.clone(), || Ok(U))?;
         let u = <FS1::Gadget as FoldingSchemeGadgetDef>::IU::new_witness(cs.clone(), || Ok(u))?;
@@ -591,14 +607,14 @@ impl<
             self.config.shielded_tx_leaf_config,
             CRHParametersVar::new_constant(cs.clone(), &self.config.shielded_tx_two_to_one_config)?,
         );
-        let tx_tree = TransactionTreeGadget::new(
-            self.config.tx_tree_leaf_config,
-            CRHParametersVar::new_constant(cs.clone(), &self.config.tx_tree_two_to_one_config)?,
-        );
-        let signer_tree = SignerTreeGadget::new(
-            self.config.signer_tree_leaf_config,
-            CRHParametersVar::new_constant(cs.clone(), &self.config.signer_tree_two_to_one_config)?,
-        );
+        //let tx_tree = TransactionTreeGadget::new(
+        //    self.config.tx_tree_leaf_config,
+        //    CRHParametersVar::new_constant(cs.clone(), &self.config.tx_tree_two_to_one_config)?,
+        //);
+        //let signer_tree = SignerTreeGadget::new(
+        //    self.config.signer_tree_leaf_config,
+        //    CRHParametersVar::new_constant(cs.clone(), &self.config.signer_tree_two_to_one_config)?,
+        //);
         let nullifier_tree = NullifierTreeGadgeet::new(
             CRHParametersVar::new_constant(cs.clone(), &self.config.nullifier_tree_leaf_config)?,
             CRHParametersVar::new_constant(
@@ -623,7 +639,27 @@ impl<
         let next_tx_index = FpVar::new_witness(cs.clone(), || {
             Ok(FS1::TranscriptField::from(next_tx_index as u64))
         })?;
-        let tx_tree_inclusion_proof = Vec::new_witness(cs.clone(), || Ok(tx_tree_inclusion_proof))?;
+
+        let tx_tree_inclusion_proof =
+            NArySparsePathVar::<
+                TRANSACTION_TREE_ARITY,
+                TransactionTreeConfig<FS1::TranscriptField>,
+                TransactionTreeConfigGadget<FS1::TranscriptField>,
+                FS1::TranscriptField,
+                SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
+                SparseNAryTransactionTreeConfigGadget<FS1::TranscriptField>,
+            >::new_witness(cs.clone(), || Ok(tx_tree_inclusion_proof))?;
+
+        let signer_tree_inclusion_proof =
+            NArySparsePathVar::<
+                SIGNER_TREE_ARITY,
+                SignerTreeConfig<FS1::TranscriptField>,
+                SignerTreeConfigGadget<FS1::TranscriptField>,
+                FS1::TranscriptField,
+                SparseNArySignerTreeConfig<FS1::TranscriptField>,
+                SparseNArySignerTreeConfigGadget<FS1::TranscriptField>,
+            >::new_witness(cs.clone(), || Ok(signer_tree_inclusion_proof))?;
+
         let nullifier_tree_replacement_proofs = nullifier_tree_replacement_proofs
             .iter()
             .map(|p| Vec::new_witness(cs.clone(), || Ok(&p[..])))
@@ -644,8 +680,8 @@ impl<
                 .map(|i| FS1::TranscriptField::from(i as u64))
                 .collect::<Vec<_>>())
         })?;
-        let signer_tree_update_proof =
-            Vec::new_witness(cs.clone(), || Ok(signer_tree_update_proof))?;
+        //let signer_tree_update_proof =
+        //    Vec::new_witness(cs.clone(), || Ok(signer_tree_update_proof))?;
 
         u.public_inputs().enforce_equal(
             &[
@@ -660,12 +696,25 @@ impl<
             .concat(),
         )?;
 
-        tx_tree.check_index(
+        let plasma_blind_config_var = PlasmaBlindConfigVar::new_variable(
+            cs.clone(),
+            || Ok(self.config.clone()),
+            AllocationMode::Constant,
+        )?;
+
+        tx_tree_inclusion_proof.verify_membership(
+            &(),
+            &plasma_blind_config_var.tx_tree_n_to_one_config,
             &tx_root,
             &utxo_tree.build_root(&tx.output_utxo_commitments)?,
-            &tx_index,
-            &tx_tree_inclusion_proof,
-        )?;
+        );
+
+        //tx_tree.check_index(
+        //    &tx_root,
+        //    &utxo_tree.build_root(&tx.output_utxo_commitments)?,
+        //    &tx_index,
+        //    &tx_tree_inclusion_proof,
+        //)?;
 
         for j in 0..TX_IO_SIZE {
             let is_dummy = tx.input_nullifiers[j].value.is_zero()?;
@@ -700,9 +749,24 @@ impl<
             nullifier_root = is_dummy.select(&nullifier_root, &nullifier_root_new)?;
         }
 
-        let (signer_root_old, signer_root_new) =
-            signer_tree.update_root(&FpVar::zero(), &pk, &tx_index, &signer_tree_update_proof)?;
-        signer_root_old.enforce_equal(&signer_root)?;
+        // check that the leaf is empty initially
+        let signer_root_old = signer_tree_inclusion_proof.verify_membership(
+            &self.config.signer_tree_leaf_config,
+            &plasma_blind_config_var.signer_tree_n_to_one_config,
+            &signer_root,
+            &FpVar::zero(),
+        )?;
+        signer_root_old.is_eq(&Boolean::constant(true))?;
+
+        let signer_root_new = signer_tree_inclusion_proof.calculate_root(
+            &self.config.signer_tree_leaf_config,
+            &plasma_blind_config_var.signer_tree_n_to_one_config,
+            &pk,
+        )?;
+
+        //let (signer_root_old, signer_root_new) =
+        //    signer_tree.update_root(&FpVar::zero(), &pk, &tx_index, &signer_tree_update_proof)?;
+        // signer_root_old.enforce_equal(&signer_root)?;
 
         (&next_tx_index - tx_index - FpVar::one()).to_n_bits_le(64)?;
 
@@ -980,7 +1044,10 @@ mod tests {
             nullifier_tree_root: Fr::default(),
             height: block_height as usize,
         };
-        let block_inclusion_proof = block_tree.update_and_prove(block_height, &prev_block)?;
+        let block_inclusion_proof = {
+            block_tree.update(block_height, &prev_block)?;
+            block_tree.generate_proof(block_height)?
+        };
 
         let transaction_inclusion_proofs = (0..transactions.len())
             .map(|i| transactions_tree.generate_proof(i))

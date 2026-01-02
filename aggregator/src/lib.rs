@@ -1,35 +1,31 @@
-use std::collections::{BTreeMap, HashMap};
-use std::marker::PhantomData;
+use std::collections::BTreeMap;
 
 use ark_crypto_primitives::sponge::Absorb;
-use ark_crypto_primitives::sponge::poseidon::PoseidonSponge;
-use ark_ec::CurveGroup;
 use ark_ff::{One, PrimeField, Zero};
 use ark_relations::gr1cs::ConstraintSystem;
 use ark_std::ops::Bound::{Excluded, Unbounded};
 use ark_std::rand::rngs::ThreadRng;
 use ark_std::rand::thread_rng;
 use ark_std::test_rng;
+use nmerkle_trees::sparse::NArySparsePath;
 use plasmablind_core::datastructures::shieldedtx::{ShieldedTransaction, UTXOTree};
-use plasmablind_core::{
-    config::PlasmaBlindConfig,
-    datastructures::{
-        keypair::PublicKey,
-        nullifier::NullifierTree,
-        signerlist::SignerTree,
-        txtree::{TransactionTree, TransactionTreeConfig},
-    },
+use plasmablind_core::datastructures::signerlist::SparseNArySignerTree;
+use plasmablind_core::datastructures::txtree::{
+    SparseNAryTransactionTree, SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY,
+    TransactionTreeConfig,
+};
+use plasmablind_core::datastructures::{
+    nullifier::NullifierTree, signerlist::SignerTree, txtree::TransactionTree,
 };
 use sonobe_fs::{
-    DeciderKey, FoldingInstance, FoldingSchemeDef, FoldingSchemeGadgetOpsFull,
-    FoldingSchemeGadgetOpsPartial, FoldingSchemeOps, GroupBasedFoldingSchemeSecondary,
+    DeciderKey, FoldingInstance, FoldingSchemeGadgetOpsFull, FoldingSchemeGadgetOpsPartial,
+    GroupBasedFoldingSchemeSecondary,
 };
-use sonobe_ivc::compilers::cyclefold::{CycleFoldBasedIVC, FoldingSchemeCycleFoldExt, Proof};
+use sonobe_ivc::compilers::cyclefold::{CycleFoldBasedIVC, FoldingSchemeCycleFoldExt};
 use sonobe_ivc::{IVC, IVCStatefulProver};
-use sonobe_primitives::circuits::FCircuit;
 use sonobe_primitives::commitments::VectorCommitmentDef;
 use sonobe_primitives::traits::Dummy;
-use sonobe_primitives::traits::{CF1, SonobeCurve, SonobeField};
+use sonobe_primitives::traits::{CF1, SonobeCurve};
 use sonobe_primitives::transcripts::Transcript;
 
 use crate::circuits::{AggregatorCircuit, AggregatorCircuitExternalInputs, AggregatorCircuitState};
@@ -74,11 +70,11 @@ pub struct Aggregator<
     circuit: AggregatorCircuit<T, FS1, FS2, ThreadRng>,
 
     transactions: Vec<ShieldedTransaction<FS1::TranscriptField>>,
-    transaction_tree: TransactionTree<FS1::TranscriptField>,
+    transaction_tree: SparseNAryTransactionTree<FS1::TranscriptField>,
     transaction_validity_proofs: Vec<(FS1::RW, FS1::RU, FS1::IU, FS1::Proof<1, 1>)>,
 
     senders: Vec<FS1::TranscriptField>,
-    signer_tree: SignerTree<FS1::TranscriptField>,
+    signer_tree: SparseNArySignerTree<FS1::TranscriptField>,
 
     nullifiers: BTreeMap<FS1::TranscriptField, (usize, usize)>,
     nullifier_tree: NullifierTree<FS1::TranscriptField>,
@@ -123,14 +119,18 @@ impl<
             AggregatorCircuit<T, FS1, FS2, ThreadRng>,
         >,
     ) -> Self {
-        let transaction_tree = TransactionTree::blank(
+        let transaction_tree = SparseNAryTransactionTree::blank(
             &circuit.config.tx_tree_leaf_config,
-            &circuit.config.tx_tree_two_to_one_config,
-        );
-        let signer_tree = SignerTree::blank(
+            &circuit.config.tx_tree_n_to_one_config,
+            &FS1::TranscriptField::default(),
+        )
+        .unwrap();
+        let signer_tree = SparseNArySignerTree::blank(
             &circuit.config.signer_tree_leaf_config,
-            &circuit.config.signer_tree_two_to_one_config,
-        );
+            &circuit.config.signer_tree_n_to_one_config,
+            &FS1::TranscriptField::default(),
+        )
+        .unwrap();
         let mut nullifier_tree = NullifierTree::blank(
             &circuit.config.nullifier_tree_leaf_config,
             &circuit.config.nullifier_tree_two_to_one_config,
@@ -183,15 +183,19 @@ impl<
     pub fn reset_for_new_epoch(&mut self) {
         self.transactions.clear();
         self.transaction_validity_proofs.clear();
-        self.transaction_tree = TransactionTree::blank(
+        self.transaction_tree = SparseNAryTransactionTree::blank(
             &self.circuit.config.tx_tree_leaf_config,
-            &self.circuit.config.tx_tree_two_to_one_config,
-        );
+            &self.circuit.config.tx_tree_n_to_one_config,
+            &FS1::TranscriptField::default(),
+        )
+        .unwrap();
         self.senders.clear();
-        self.signer_tree = SignerTree::blank(
+        self.signer_tree = SparseNArySignerTree::blank(
             &self.circuit.config.signer_tree_leaf_config,
-            &self.circuit.config.signer_tree_two_to_one_config,
-        );
+            &self.circuit.config.signer_tree_n_to_one_config,
+            &FS1::TranscriptField::default(),
+        )
+        .unwrap();
     }
 
     pub fn process_transactions(
@@ -201,9 +205,9 @@ impl<
     ) {
         self.transactions = txs;
         self.senders = senders;
-        self.transaction_tree = TransactionTree::new(
+        self.transaction_tree = SparseNAryTransactionTree::new(
             &self.circuit.config.tx_tree_leaf_config,
-            &self.circuit.config.tx_tree_two_to_one_config,
+            &self.circuit.config.tx_tree_n_to_one_config,
             &BTreeMap::from_iter(
                 self.transactions
                     .iter()
@@ -220,13 +224,22 @@ impl<
                     })
                     .enumerate(),
             ),
+            &FS1::TranscriptField::default(),
         )
         .unwrap();
     }
 
-    pub fn transaction_inclusion_proofs(&self) -> Vec<Vec<FS1::TranscriptField>> {
+    pub fn transaction_inclusion_proofs(
+        &self,
+    ) -> Vec<
+        NArySparsePath<
+            TRANSACTION_TREE_ARITY,
+            TransactionTreeConfig<FS1::TranscriptField>,
+            SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
+        >,
+    > {
         (0..self.transactions.len())
-            .map(|i| self.transaction_tree.generate_membership_proof(i))
+            .map(|i| self.transaction_tree.generate_proof(i))
             .collect::<Result<_, _>>()
             .unwrap()
     }
@@ -391,7 +404,7 @@ impl<
                         next_tx_index: valid_indexes.get(i + 1).cloned().unwrap_or(usize::MAX),
                         tx_tree_inclusion_proof: self
                             .transaction_tree
-                            .generate_membership_proof(tx_index)
+                            .generate_proof(tx_index)
                             .unwrap(),
                         nullifier_tree_replacement_proofs: nullifier_tree_replacement_proofs
                             .try_into()
@@ -405,11 +418,10 @@ impl<
                         nullifier_tree_insertion_positions: nullifier_tree_insertion_positions
                             .try_into()
                             .unwrap(),
-                        signer_tree_update_proof: self
+                        signer_tree_inclusion_proof: self
                             .signer_tree
-                            .update_and_prove(tx_index, &self.senders[tx_index])
+                            .generate_proof(tx_index)
                             .unwrap(),
-
                         rng,
                     },
                     &mut rng1,

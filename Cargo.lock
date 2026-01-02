@@ -14,6 +14,7 @@ dependencies = [
  "ark-r1cs-std",
  "ark-relations 0.5.1 (git+https://github.com/arkworks-rs/snark)",
  "ark-std 0.5.0 (git+https://github.com/arkworks-rs/std)",
+ "nmerkle-trees",
  "num-bigint",
  "plasmablind-core",
  "sonobe-fs",
@@ -740,7 +741,7 @@ dependencies = [
 [[package]]
 name = "nmerkle-trees"
 version = "0.1.0"
-source = "git+https://github.com/dmpierre/ark-nmerkle-trees#e552797ee923c6301d86360900788b95e1da11b1"
+source = "git+https://github.com/dmpierre/ark-nmerkle-trees#d125fe75ff5c79fbbd494b62420826bf344d286e"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ff",
