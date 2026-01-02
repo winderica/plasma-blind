@@ -203,8 +203,20 @@ impl<
         senders: Vec<FS1::TranscriptField>,
         txs: Vec<ShieldedTransaction<FS1::TranscriptField>>,
     ) {
-        self.transactions = txs;
-        self.senders = senders;
+        self.transactions = txs.clone();
+        self.senders = senders.clone();
+
+        assert_eq!(senders.len(), txs.len());
+
+        let signers = BTreeMap::from_iter(senders.into_iter().enumerate());
+        self.signer_tree = SparseNArySignerTree::new(
+            &self.circuit.config.signer_tree_leaf_config,
+            &self.circuit.config.signer_tree_n_to_one_config,
+            &signers,
+            &FS1::TranscriptField::default(),
+        )
+        .unwrap();
+
         self.transaction_tree = SparseNAryTransactionTree::new(
             &self.circuit.config.tx_tree_leaf_config,
             &self.circuit.config.tx_tree_n_to_one_config,

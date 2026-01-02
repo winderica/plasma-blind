@@ -607,14 +607,7 @@ impl<
             self.config.shielded_tx_leaf_config,
             CRHParametersVar::new_constant(cs.clone(), &self.config.shielded_tx_two_to_one_config)?,
         );
-        //let tx_tree = TransactionTreeGadget::new(
-        //    self.config.tx_tree_leaf_config,
-        //    CRHParametersVar::new_constant(cs.clone(), &self.config.tx_tree_two_to_one_config)?,
-        //);
-        //let signer_tree = SignerTreeGadget::new(
-        //    self.config.signer_tree_leaf_config,
-        //    CRHParametersVar::new_constant(cs.clone(), &self.config.signer_tree_two_to_one_config)?,
-        //);
+
         let nullifier_tree = NullifierTreeGadgeet::new(
             CRHParametersVar::new_constant(cs.clone(), &self.config.nullifier_tree_leaf_config)?,
             CRHParametersVar::new_constant(
@@ -680,8 +673,6 @@ impl<
                 .map(|i| FS1::TranscriptField::from(i as u64))
                 .collect::<Vec<_>>())
         })?;
-        //let signer_tree_update_proof =
-        //    Vec::new_witness(cs.clone(), || Ok(signer_tree_update_proof))?;
 
         u.public_inputs().enforce_equal(
             &[
@@ -702,19 +693,14 @@ impl<
             AllocationMode::Constant,
         )?;
 
-        tx_tree_inclusion_proof.verify_membership(
-            &(),
-            &plasma_blind_config_var.tx_tree_n_to_one_config,
-            &tx_root,
-            &utxo_tree.build_root(&tx.output_utxo_commitments)?,
-        );
-
-        //tx_tree.check_index(
-        //    &tx_root,
-        //    &utxo_tree.build_root(&tx.output_utxo_commitments)?,
-        //    &tx_index,
-        //    &tx_tree_inclusion_proof,
-        //)?;
+        tx_tree_inclusion_proof
+            .verify_membership(
+                &(),
+                &plasma_blind_config_var.tx_tree_n_to_one_config,
+                &tx_root,
+                &utxo_tree.build_root(&tx.output_utxo_commitments)?,
+            )?
+            .enforce_equal(&Boolean::constant(true))?;
 
         for j in 0..TX_IO_SIZE {
             let is_dummy = tx.input_nullifiers[j].value.is_zero()?;
@@ -749,24 +735,14 @@ impl<
             nullifier_root = is_dummy.select(&nullifier_root, &nullifier_root_new)?;
         }
 
-        // check that the leaf is empty initially
-        let signer_root_old = signer_tree_inclusion_proof.verify_membership(
-            &self.config.signer_tree_leaf_config,
-            &plasma_blind_config_var.signer_tree_n_to_one_config,
-            &signer_root,
-            &FpVar::zero(),
-        )?;
-        signer_root_old.is_eq(&Boolean::constant(true))?;
-
-        let signer_root_new = signer_tree_inclusion_proof.calculate_root(
-            &self.config.signer_tree_leaf_config,
-            &plasma_blind_config_var.signer_tree_n_to_one_config,
-            &pk,
-        )?;
-
-        //let (signer_root_old, signer_root_new) =
-        //    signer_tree.update_root(&FpVar::zero(), &pk, &tx_index, &signer_tree_update_proof)?;
-        // signer_root_old.enforce_equal(&signer_root)?;
+        signer_tree_inclusion_proof
+            .verify_membership(
+                &(),
+                &plasma_blind_config_var.signer_tree_n_to_one_config,
+                &signer_root,
+                &pk,
+            )?
+            .enforce_equal(&Boolean::constant(true))?;
 
         (&next_tx_index - tx_index - FpVar::one()).to_n_bits_le(64)?;
 
@@ -777,7 +753,7 @@ impl<
                 tx_index: next_tx_index,
                 tx_root,
                 nullifier_root,
-                signer_root: signer_root_new,
+                signer_root,
                 block_root,
             },
             AggregatorCircuitExternalOutputs {
@@ -791,6 +767,7 @@ impl<
 
 #[cfg(test)]
 mod tests {
+    use sonobe_fs::FoldingSchemeVerifier;
     use std::collections::{BTreeMap, HashMap};
 
     use ark_bn254::{Fr, G1Projective as C1};
@@ -1049,6 +1026,8 @@ mod tests {
             block_tree.generate_proof(block_height)?
         };
 
+        assert_eq!(transactions.len(), signers.len());
+
         let transaction_inclusion_proofs = (0..transactions.len())
             .map(|i| transactions_tree.generate_proof(i))
             .collect::<Result<Vec<_>, _>>()?;
@@ -1060,6 +1039,7 @@ mod tests {
         let mut transactions = vec![];
         let mut senders = vec![];
         let mut assignments_vec = vec![];
+
         for sender_index in 0..n_users {
             let should_send = rng.gen_bool(0.5);
 
