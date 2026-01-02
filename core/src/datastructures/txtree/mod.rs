@@ -7,12 +7,12 @@ use ark_crypto_primitives::{
 };
 use ark_ff::PrimeField;
 use nmerkle_trees::sparse::{NAryMerkleSparseTree, traits::NArySparseConfig};
-
-pub const TX_TREE_HEIGHT: usize = 12;
-use crate::primitives::{
-    crh::IdentityCRH,
-    sparsemt::{MerkleSparseTree, SparseConfig},
+use sonobe_primitives::transcripts::{
+    Absorbable,
+    griffin::{GriffinParams, sponge::GriffinSponge},
 };
+
+use crate::primitives::{crh::IdentityCRH, sparsemt::MerkleSparseTree};
 
 pub mod constraints;
 
@@ -24,8 +24,8 @@ pub type SparseNAryTransactionTree<F> = NAryMerkleSparseTree<
     SparseNAryTransactionTreeConfig<F>,
 >;
 
-pub const TRANSACTION_TREE_ARITY: usize = 7;
-pub const NARY_TRANSACTION_TREE_HEIGHT: u64 = 5;
+pub const TRANSACTION_TREE_ARITY: usize = 4;
+pub const NARY_TRANSACTION_TREE_HEIGHT: u64 = 7;
 
 #[derive(Clone, Debug, Default)]
 pub struct TransactionTreeConfig<F> {
@@ -37,11 +37,12 @@ pub struct SparseNAryTransactionTreeConfig<F> {
     _f: PhantomData<F>,
 }
 
-impl<F: Absorb + PrimeField> NArySparseConfig<TRANSACTION_TREE_ARITY, TransactionTreeConfig<F>>
+impl<F: Absorb + PrimeField + Absorbable>
+    NArySparseConfig<TRANSACTION_TREE_ARITY, TransactionTreeConfig<F>>
     for SparseNAryTransactionTreeConfig<F>
 {
-    type NToOneHashParams = PoseidonConfig<F>;
-    type NToOneHash = CRH<F>;
+    type NToOneHashParams = GriffinParams<F>;
+    type NToOneHash = GriffinSponge<F>;
     const HEIGHT: u64 = NARY_TRANSACTION_TREE_HEIGHT;
 }
 
@@ -55,6 +56,6 @@ impl<F: PrimeField + Absorb> Config for TransactionTreeConfig<F> {
     type TwoToOneHash = TwoToOneCRH<F>;
 }
 
-impl<F: PrimeField + Absorb> SparseConfig for TransactionTreeConfig<F> {
-    const HEIGHT: usize = TX_TREE_HEIGHT;
-}
+//impl<F: PrimeField + Absorb> SparseConfig for TransactionTreeConfig<F> {
+//    const HEIGHT: usize = TX_TREE_HEIGHT;
+//}

@@ -5,7 +5,6 @@ pub mod errs;
 pub mod primitives;
 pub mod utils;
 
-pub const SIGNER_TREE_HEIGHT: usize = datastructures::txtree::TX_TREE_HEIGHT;
 pub const NULLIFIER_TREE_HEIGHT: usize = 32;
 
 #[cfg(test)]
@@ -49,15 +48,16 @@ pub mod tests {
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
             signerlist::{SIGNER_TREE_ARITY, SignerTree, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
-            txtree::{SparseNAryTransactionTree, TransactionTree},
+            txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY, TransactionTree},
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
         },
         primitives::{
             crh::{
-                BlockTreeCRH, IntervalCRH, UTXOCRH,
+                BlockTreeCRH, BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
                 utils::{
-                    initialize_n_to_one_config, initialize_poseidon_config,
-                    initialize_two_to_one_binary_tree_poseidon_config,
+                    initialize_blockcrh_config_griffin, initialize_griffin_config,
+                    initialize_n_to_one_config, initialize_n_to_one_config_griffin,
+                    initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
                 },
             },
             sparsemt::MerkleSparseTree,
@@ -72,22 +72,27 @@ pub mod tests {
         // poseidon crh only for now, should be configurable in the future
         let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
         let poseidon_config = initialize_poseidon_config::<Fr>();
+        let griffin_config = initialize_griffin_config::<Fr>();
 
         let utxo_crh_config = UTXOCRH::setup(&mut rng).unwrap();
         let shielded_tx_leaf_config = ();
         let tx_tree_leaf_config = ();
         let signer_tree_leaf_config = ();
         let nullifier_tree_leaf_config = IntervalCRH::setup(&mut rng).unwrap();
-        let block_tree_leaf_config = BlockTreeCRH::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = BlockTreeCRHGriffin::setup(&mut rng).unwrap();
 
         let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
         let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
-        let block_tree_n_to_one_config = initialize_n_to_one_config::<BLOCK_TREE_ARITY, Fr>();
-        let tx_tree_n_to_one_config = initialize_n_to_one_config::<SIGNER_TREE_ARITY, Fr>();
-        let signer_tree_n_to_one_config = initialize_n_to_one_config::<SIGNER_TREE_ARITY, Fr>();
+        let block_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<BLOCK_TREE_ARITY, Fr>();
+        let tx_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<TRANSACTION_TREE_ARITY, Fr>();
+        let signer_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<SIGNER_TREE_ARITY, Fr>();
 
         let config = PlasmaBlindConfig::new(
             poseidon_config.clone(),
+            griffin_config.clone(),
             utxo_crh_config,
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
@@ -121,7 +126,7 @@ pub mod tests {
         alice_to_bob_tx.set_output(alice_to_bob_utxo_index, alice_to_bob_utxo);
 
         let alice_to_bob_shielded_tx = ShieldedTransaction::new(
-            &config.poseidon_config,
+            &config.griffin_config,
             &config.utxo_crh_config,
             &alice_sk,
             &alice_to_bob_tx,
@@ -225,7 +230,7 @@ pub mod tests {
 
         // 6. prepare bob to alice shielded transaction
         let bob_to_alice_shielded_tx = ShieldedTransaction::new(
-            &config.poseidon_config,
+            &config.griffin_config,
             &config.utxo_crh_config,
             &bob_sk,
             &bob_to_alice_tx,

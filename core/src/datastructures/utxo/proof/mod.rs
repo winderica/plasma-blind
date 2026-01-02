@@ -1,6 +1,7 @@
 use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
 use nmerkle_trees::sparse::NArySparsePath;
+use sonobe_primitives::transcripts::Absorbable;
 
 use crate::datastructures::{
     block::BlockMetadata,
@@ -16,7 +17,7 @@ pub mod constraints;
 // valid utxo = included in shielded tx, within a tx tree which was signed at a certain block
 // included within the block tree
 #[derive(Clone)]
-pub struct UTXOProof<F: PrimeField + Absorb> {
+pub struct UTXOProof<F: PrimeField + Absorb + Absorbable> {
     pub block: BlockMetadata<F>,
     pub utxo_path: Vec<F>,
     pub signer_path:
@@ -30,7 +31,7 @@ pub struct UTXOProof<F: PrimeField + Absorb> {
         NArySparsePath<BLOCK_TREE_ARITY, BlockTreeConfig<F>, SparseNAryBlockTreeConfig<F>>,
 }
 
-impl<F: PrimeField + Absorb> UTXOProof<F> {
+impl<F: PrimeField + Absorb + Absorbable> UTXOProof<F> {
     pub fn new(
         block: BlockMetadata<F>,
         utxo_inclusion_proof: Vec<F>,
@@ -60,7 +61,7 @@ impl<F: PrimeField + Absorb> UTXOProof<F> {
     }
 }
 
-impl<F: PrimeField + Absorb> Default for UTXOProof<F> {
+impl<F: PrimeField + Absorb + Absorbable> Default for UTXOProof<F> {
     fn default() -> Self {
         Self {
             block: Default::default(),

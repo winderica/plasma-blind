@@ -1,3 +1,6 @@
+use sonobe_primitives::transcripts::Absorbable;
+use sonobe_primitives::transcripts::griffin::constraints::crh::GriffinParamsVar;
+use sonobe_primitives::transcripts::griffin::sponge::GriffinSpongeVar;
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::crh::CRHSchemeGadget;
@@ -24,13 +27,13 @@ pub struct NullifierVar<F: PrimeField> {
     pub value: FpVar<F>,
 }
 
-impl<F: PrimeField + Absorb> NullifierVar<F> {
+impl<F: PrimeField + Absorb + Absorbable> NullifierVar<F> {
     pub fn new(
-        cfg: &CRHParametersVar<F>,
+        cfg: &GriffinParamsVar<F>,
         sk: &FpVar<F>,
         utxo_info: &UTXOInfoVar<F>,
     ) -> Result<Self, SynthesisError> {
-        let digest = CRHGadget::evaluate(
+        let digest = GriffinSpongeVar::evaluate(
             cfg,
             &[
                 sk.clone(),

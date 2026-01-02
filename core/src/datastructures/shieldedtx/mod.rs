@@ -7,6 +7,7 @@ use ark_crypto_primitives::{
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ff::PrimeField;
+use sonobe_primitives::transcripts::{Absorbable, griffin::GriffinParams};
 
 use crate::{
     datastructures::{TX_IO_SIZE, nullifier::Nullifier},
@@ -29,10 +30,10 @@ pub struct ShieldedTransaction<F> {
     pub output_utxo_commitments: Vec<F>,
 }
 
-impl<F: Absorb + PrimeField> ShieldedTransaction<F> {
+impl<F: Absorb + PrimeField + Absorbable> ShieldedTransaction<F> {
     pub fn new(
-        nullifier_hash_config: &PoseidonConfig<F>,
-        utxo_hash_config: &PoseidonConfig<F>,
+        nullifier_hash_config: &GriffinParams<F>,
+        utxo_hash_config: &GriffinParams<F>,
         sk: &F,
         transparent_tx: &TransparentTransaction<F>,
     ) -> Result<Self, Error> {

@@ -10,7 +10,7 @@ use ark_r1cs_std::{
 };
 use ark_relations::gr1cs::SynthesisError;
 use nmerkle_trees::sparse::constraints::NArySparsePathVar;
-use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
+use sonobe_primitives::{algebra::ops::bits::ToBitsGadgetExt, transcripts::Absorbable};
 
 use super::UTXOProof;
 use crate::{
@@ -36,7 +36,7 @@ use crate::{
     primitives::crh::constraints::UTXOVarCRH,
 };
 
-pub struct UTXOProofVar<F: PrimeField + Absorb> {
+pub struct UTXOProofVar<F: PrimeField + Absorb + Absorbable> {
     block: BlockMetadataVar<F>,
     utxo_inclusion_proof: Vec<FpVar<F>>,
     signer_inclusion_proof: NArySparsePathVar<
@@ -65,7 +65,7 @@ pub struct UTXOProofVar<F: PrimeField + Absorb> {
     >,
 }
 
-impl<F: PrimeField + Absorb> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
+impl<F: PrimeField + Absorb + Absorbable> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
     fn new_variable<T: std::borrow::Borrow<UTXOProof<F>>>(
         cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
@@ -105,7 +105,7 @@ impl<F: PrimeField + Absorb> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
     }
 }
 
-impl<F: PrimeField + Absorb> UTXOVar<F> {
+impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
     // An input utxo is valid if:
     // 1. it exists in a shielded transaction tx
     // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
@@ -130,47 +130,26 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
         // 1. utxo exists in a shielded transaction tx
         let utxo_tree_root = plasma_blind_config.utxo_tree.recover_root(
             &UTXOVarCRH::evaluate(&plasma_blind_config.utxo_crh_config, self)?,
-            &info
-                .utxo_index
-                .to_n_bits_le((SHIELDED_TX_TREE_HEIGHT - 1))?,
+            &info.utxo_index.to_n_bits_le(SHIELDED_TX_TREE_HEIGHT - 1)?,
             &proof.utxo_inclusion_proof,
         )?;
 
         // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
-        //plasma_blind_config.tx_tree.conditionally_check_index(
-        //    &proof.block.tx_tree_root,
-        //    &utxo_tree_root,
-        //    &info.tx_index,
-        //    &proof.tx_inclusion_proof,
-        //    &is_not_dummy,
-        //)?;
-
-        let is_valid_tx = proof.signer_inclusion_proof.verify_membership(
+        let is_valid_tx = proof.tx_inclusion_proof.verify_membership(
             &(),
             &plasma_blind_config.tx_tree_n_to_one_config,
             &proof.block.tx_tree_root,
             &utxo_tree_root,
         )?;
-
         is_valid_tx.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
-        // 3. the transaction tree T has been signed by the sender s
-        //info.from
-        //    .conditional_enforce_not_equal(&FpVar::zero(), &is_not_dummy)?;
-        //plasma_blind_config.signer_tree.conditionally_check_index(
-        //    &proof.block.signer_tree_root,
-        //    &info.from,
-        //    &info.tx_index,
-        //    &proof.signer_inclusion_proof,
-        //    &is_not_dummy,
-        //)?;
 
+        // 3. the transaction tree T has been signed by the sender s
         let is_valid_signer = proof.signer_inclusion_proof.verify_membership(
             &(),
             &plasma_blind_config.signer_tree_n_to_one_config,
             &proof.block.signer_tree_root,
             &info.from,
         )?;
-
         is_valid_signer.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
 
         // 4. block is contained within the block tree
@@ -185,7 +164,7 @@ impl<F: PrimeField + Absorb> UTXOVar<F> {
 
         // 5. nullifier computation is correct
         nullifier.value.enforce_equal(&is_not_dummy.select(
-            &NullifierVar::new(&plasma_blind_config.poseidon_config, sk, info)?.value,
+            &NullifierVar::new(&plasma_blind_config.griffin_config, sk, info)?.value,
             &FpVar::zero(),
         )?)?;
 

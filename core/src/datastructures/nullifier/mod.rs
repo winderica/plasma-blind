@@ -10,13 +10,21 @@ use ark_crypto_primitives::{
     sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ff::{BigInteger, PrimeField};
-use sonobe_primitives::traits::Inputize;
+use sonobe_primitives::{
+    traits::Inputize,
+    transcripts::{
+        Absorbable,
+        griffin::{GriffinParams, sponge::GriffinSponge},
+    },
+};
 
 use crate::{
-    NULLIFIER_TREE_HEIGHT, datastructures::utxo::UTXOInfo, primitives::{
+    NULLIFIER_TREE_HEIGHT,
+    datastructures::utxo::UTXOInfo,
+    primitives::{
         crh::IntervalCRH,
         sparsemt::{MerkleSparseTree, SparseConfig},
-    }
+    },
 };
 
 pub mod constraints;
@@ -26,13 +34,9 @@ pub struct Nullifier<F> {
     pub value: F,
 }
 
-impl<F: PrimeField + Absorb> Nullifier<F> {
-    pub fn new(
-        cfg: &PoseidonConfig<F>,
-        sk: F,
-        utxo_info: &UTXOInfo<F>,
-    ) -> Result<Self, Error> {
-        let digest = CRH::evaluate(
+impl<F: PrimeField + Absorb + Absorbable> Nullifier<F> {
+    pub fn new(cfg: &GriffinParams<F>, sk: F, utxo_info: &UTXOInfo<F>) -> Result<Self, Error> {
+        let digest = GriffinSponge::evaluate(
             cfg,
             [
                 sk,

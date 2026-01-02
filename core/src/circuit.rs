@@ -9,6 +9,7 @@ use ark_r1cs_std::{
     fields::{FieldVar, fp::FpVar},
 };
 use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+use sonobe_primitives::transcripts::Absorbable;
 
 use crate::{
     config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
@@ -22,7 +23,7 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct TransactionValidityCircuit<F: PrimeField + Absorb> {
+pub struct TransactionValidityCircuit<F: PrimeField + Absorb + Absorbable> {
     null_sk: F,                                // user secret for nullifier computation
     null_pk: F, // hash of user's secret, which is registered on the L1
     transparent_tx: TransparentTransaction<F>, // transparent transaction
@@ -34,7 +35,7 @@ pub struct TransactionValidityCircuit<F: PrimeField + Absorb> {
     plasma_blind_config: PlasmaBlindConfig<F>,
 }
 
-impl<F: PrimeField + Absorb> TransactionValidityCircuit<F> {
+impl<F: PrimeField + Absorb + Absorbable> TransactionValidityCircuit<F> {
     pub fn new(
         null_sk: F,                                // user secret for nullifier computation
         null_pk: F, // hash of user's secret, which is registered on the L1
@@ -58,7 +59,9 @@ impl<F: PrimeField + Absorb> TransactionValidityCircuit<F> {
     }
 }
 
-impl<F: PrimeField + Absorb> ConstraintSynthesizer<F> for TransactionValidityCircuit<F> {
+impl<F: PrimeField + Absorb + Absorbable> ConstraintSynthesizer<F>
+    for TransactionValidityCircuit<F>
+{
     fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         let null_sk = FpVar::new_witness(cs.clone(), || Ok(self.null_sk))?;
         let null_pk = FpVar::new_input(cs.clone(), || Ok(self.null_pk))?;

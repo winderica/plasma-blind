@@ -1,3 +1,4 @@
+use sonobe_primitives::transcripts::griffin::constraints::crh::GriffinParamsVar;
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
@@ -10,12 +11,14 @@ use ark_crypto_primitives::{
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
+use sonobe_primitives::transcripts::{Absorbable, griffin::sponge::GriffinSpongeVar};
 
-use super::{BlockTreeCRH, NonceCRH, PublicKeyCRH, UTXOCRH};
+use super::{BlockTreeCRH, BlockTreeCRHGriffin, NonceCRH, PublicKeyCRH, UTXOCRH};
 use crate::{
     datastructures::{
         block::constraints::BlockMetadataVar, keypair::constraints::PublicKeyVar,
-        noncemap::constraints::NonceVar, nullifier::constraints::NullifierVar, utxo::constraints::UTXOVar,
+        noncemap::constraints::NonceVar, nullifier::constraints::NullifierVar,
+        utxo::constraints::UTXOVar,
     },
     primitives::crh::{IdentityCRH, IntervalCRH, NullifierCRH},
 };
@@ -103,10 +106,10 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseFie
 #[derive(Default)]
 pub struct UTXOVarCRH {}
 
-impl<F: PrimeField + Absorb> CRHSchemeGadget<UTXOCRH<F>, F> for UTXOVarCRH {
+impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<UTXOCRH<F>, F> for UTXOVarCRH {
     type InputVar = UTXOVar<F>;
     type OutputVar = FpVar<F>;
-    type ParametersVar = CRHParametersVar<F>;
+    type ParametersVar = GriffinParamsVar<F>;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
@@ -120,7 +123,7 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<UTXOCRH<F>, F> for UTXOVarCRH {
             input.salt.clone(),
             pk_point,
         ]);
-        CRHGadget::evaluate(parameters, &input)
+        GriffinSpongeVar::evaluate(parameters, &input)
     }
 }
 
@@ -157,6 +160,33 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockTreeCRH<F>, F> for BlockTreeVa
         CRHGadget::evaluate(
             parameters,
             &[
+                input.tx_tree_root.clone(),
+                input.signer_tree_root.clone(),
+                input.nullifier_tree_root.clone(),
+                input.height.to_fp()?,
+            ],
+        )
+    }
+}
+
+pub struct BlockTreeVarCRHGriffin<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<BlockTreeCRHGriffin<F>, F>
+    for BlockTreeVarCRHGriffin<F>
+{
+    type InputVar = BlockMetadataVar<F>;
+    type OutputVar = FpVar<F>;
+    type ParametersVar = GriffinParamsVar<F>;
+
+    fn evaluate(
+        parameters: &Self::ParametersVar,
+        input: &Self::InputVar,
+    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
+        GriffinSpongeVar::evaluate(
+            parameters,
+            &vec![
                 input.tx_tree_root.clone(),
                 input.signer_tree_root.clone(),
                 input.nullifier_tree_root.clone(),

@@ -3,35 +3,29 @@ use std::{borrow::Borrow, marker::PhantomData};
 
 use ark_crypto_primitives::{
     Error,
-    crh::{
-        CRHScheme, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
-        poseidon::CRH,
-    },
+    crh::{CRHScheme, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget, poseidon::CRH},
     sponge::{
         Absorb,
         constraints::CryptographicSpongeVar,
         poseidon::{PoseidonConfig, find_poseidon_ark_and_mds},
     },
 };
-use ark_ec::{
-    AdditiveGroup, AffineRepr, CurveGroup,
-};
+use ark_ec::{AdditiveGroup, AffineRepr, CurveGroup};
 use ark_ff::{Field, FpConfig, PrimeField, Zero};
-use ark_r1cs_std::{
-    GR1CSVar, groups::CurveVar,
-};
+use ark_r1cs_std::{GR1CSVar, groups::CurveVar};
 use ark_std::rand::Rng;
+use sonobe_primitives::transcripts::{
+    Absorbable,
+    griffin::{GriffinParams, sponge::GriffinSponge},
+};
 use utils::{
-    initialize_blockcrh_config, initialize_publickeycrh_config, initialize_utxocrh_config,
+    initialize_blockcrh_config, initialize_blockcrh_config_griffin, initialize_publickeycrh_config,
+    initialize_utxocrh_config, initialize_utxocrh_config_griffin,
 };
 
 use crate::{
     datastructures::{
-        block::BlockMetadata,
-        keypair::PublicKey,
-        noncemap::Nonce,
-        nullifier::Nullifier,
-        utxo::UTXO,
+        block::BlockMetadata, keypair::PublicKey, noncemap::Nonce, nullifier::Nullifier, utxo::UTXO,
     },
     primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config,
 };
@@ -197,14 +191,14 @@ pub struct UTXOCRH<F> {
     _f: PhantomData<F>,
 }
 
-impl<F: PrimeField + Absorb> CRHScheme for UTXOCRH<F> {
+impl<F: PrimeField + Absorb + Absorbable> CRHScheme for UTXOCRH<F> {
     type Input = UTXO<F>;
     type Output = F;
-    type Parameters = PoseidonConfig<F>;
+    type Parameters = GriffinParams<F>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
         // WARNING: this config should be checked and not used in production as is
-        Ok(initialize_utxocrh_config())
+        Ok(initialize_utxocrh_config_griffin())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -218,12 +212,42 @@ impl<F: PrimeField + Absorb> CRHScheme for UTXOCRH<F> {
             utxo.salt,
             utxo.pk,
         ];
-        CRH::evaluate(parameters, input)
+        GriffinSponge::evaluate(parameters, input)
     }
 }
 
 pub struct BlockTreeCRH<F: PrimeField> {
     _f: PhantomData<F>,
+}
+
+pub struct BlockTreeCRHGriffin<F: PrimeField> {
+    _f: PhantomData<F>,
+}
+
+// identity hash
+impl<F: PrimeField + Absorbable> CRHScheme for BlockTreeCRHGriffin<F> {
+    type Input = BlockMetadata<F>;
+    type Output = F;
+    type Parameters = GriffinParams<F>;
+
+    fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
+        // WARNING: this config should be checked and not used in production as is
+        Ok(initialize_blockcrh_config_griffin())
+    }
+
+    fn evaluate<T: Borrow<Self::Input>>(
+        parameters: &Self::Parameters,
+        input: T,
+    ) -> Result<Self::Output, Error> {
+        let block = input.borrow();
+        let input = vec![
+            block.tx_tree_root,
+            block.signer_tree_root,
+            block.nullifier_tree_root,
+            F::from(block.height as u64),
+        ];
+        GriffinSponge::evaluate(parameters, input)
+    }
 }
 
 // identity hash

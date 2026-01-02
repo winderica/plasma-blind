@@ -1,5 +1,6 @@
 use ark_crypto_primitives::sponge::poseidon::{PoseidonConfig, find_poseidon_ark_and_mds};
 use ark_ff::PrimeField;
+use sonobe_primitives::transcripts::{Absorbable, griffin::GriffinParams};
 
 // WARNING: this config should be checked and not used in production as is
 pub fn initialize_two_to_one_binary_tree_poseidon_config<F: PrimeField>() -> PoseidonConfig<F> {
@@ -32,6 +33,11 @@ pub fn initialize_utxocrh_config<F: PrimeField>() -> PoseidonConfig<F> {
         0,
     );
     PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+}
+
+// WARNING: this config should be checked and not used in production as is
+pub fn initialize_utxocrh_config_griffin<F: PrimeField>() -> GriffinParams<F> {
+    GriffinParams::<F>::new(4, 5, 11)
 }
 
 // WARNING: this config should be checked and not used in production as is
@@ -83,6 +89,12 @@ pub fn initialize_blockcrh_config<F: PrimeField>() -> PoseidonConfig<F> {
 }
 
 // WARNING: this config should be checked and not used in production as is
+pub fn initialize_blockcrh_config_griffin<F: PrimeField + Absorbable>() -> GriffinParams<F> {
+    // from table 2 in https://eprint.iacr.org/2022/403.pdf
+    GriffinParams::<F>::new(4, 5, 11)
+}
+
+// WARNING: this config should be checked and not used in production as is
 pub fn initialize_poseidon_config<F: PrimeField>() -> PoseidonConfig<F> {
     let full_rounds = 8;
     let partial_rounds = 60;
@@ -99,6 +111,12 @@ pub fn initialize_poseidon_config<F: PrimeField>() -> PoseidonConfig<F> {
 }
 
 // WARNING: this config should be checked and not used in production as is
+pub fn initialize_griffin_config<F: PrimeField + Absorbable>() -> GriffinParams<F> {
+    // from table 2 in https://eprint.iacr.org/2022/403.pdf
+    GriffinParams::<F>::new(4, 5, 11)
+}
+
+// WARNING: this config should be checked and not used in production as is
 pub fn initialize_n_to_one_config<const N: usize, F: PrimeField>() -> PoseidonConfig<F> {
     let rate = N;
     let full_rounds = 8;
@@ -112,4 +130,9 @@ pub fn initialize_n_to_one_config<const N: usize, F: PrimeField>() -> PoseidonCo
         0,
     );
     PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+}
+
+// WARNING: this config should be checked and not used in production as is
+pub fn initialize_n_to_one_config_griffin<const N: usize, F: PrimeField>() -> GriffinParams<F> {
+    GriffinParams::<F>::new(N, 5, 11)
 }
