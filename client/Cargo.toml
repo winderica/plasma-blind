@@ -23,6 +23,8 @@ ark-relations = { workspace = true }
 
 plasmablind-core = { workspace = true }
 
+nmerkle-trees = { workspace = true }
+
 sonobe-primitives = { workspace = true }
 sonobe-ivc = { workspace = true }
 sonobe-fs = { workspace = true }

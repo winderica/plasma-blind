@@ -1,5 +1,3 @@
-use std::{borrow::Borrow, cmp::Ordering, marker::PhantomData};
-
 use ark_crypto_primitives::{
     crh::{
         poseidon::{
@@ -21,6 +19,7 @@ use ark_r1cs_std::{
     prelude::Boolean,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
+use nmerkle_trees::sparse::constraints::NArySparsePathVar;
 use plasmablind_core::{
     config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
     datastructures::{
@@ -30,20 +29,27 @@ use plasmablind_core::{
             constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
             ShieldedTransactionConfig,
         },
-        signerlist::{constraints::SignerTreeConfigGadget, SignerTreeConfig},
-        txtree::{constraints::TransactionTreeConfigGadget, TransactionTreeConfig},
+        signerlist::{
+            constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
+            SignerTreeConfig, SparseNArySignerTreeConfig, SIGNER_TREE_ARITY,
+        },
+        txtree::{
+            constraints::{SparseNAryTransactionTreeConfigGadget, TransactionTreeConfigGadget},
+            SparseNAryTransactionTreeConfig, TransactionTreeConfig, TRANSACTION_TREE_ARITY,
+        },
         utxo::constraints::UTXOVar,
     },
     primitives::{
         accumulator::constraints::Accumulator,
         crh::{
-            constraints::{BlockTreeVarCRH, PublicKeyVarCRH, UTXOVarCRH},
+            constraints::{BlockTreeVarCRH, BlockTreeVarCRHGriffin, PublicKeyVarCRH, UTXOVarCRH},
             PublicKeyCRH,
         },
         sparsemt::{constraints::SparseConfigGadget, SparseConfig},
     },
 };
-use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
+use sonobe_primitives::{algebra::ops::bits::ToBitsGadgetExt, transcripts::Absorbable};
+use std::{borrow::Borrow, cmp::Ordering, marker::PhantomData};
 
 use crate::UserAux;
 
@@ -51,7 +57,7 @@ use crate::UserAux;
 pub type OpeningsMaskVar<F> = Vec<Boolean<F>>;
 
 pub struct UserCircuit<
-    F: PrimeField + Absorb,
+    F: PrimeField + Absorb + Absorbable,
     H: TwoToOneCRHScheme,
     T: TwoToOneCRHSchemeGadget<H, F>,
     A: Accumulator<F, H, T>,
@@ -63,7 +69,7 @@ pub struct UserCircuit<
 }
 
 impl<
-        F: PrimeField + Absorb,
+        F: PrimeField + Absorb + Absorbable,
         H: TwoToOneCRHScheme,
         T: TwoToOneCRHSchemeGadget<H, F>,
         A: Accumulator<F, H, T>,
@@ -90,8 +96,7 @@ impl<
 //      - if user is receiver and utxo is valid, increase balance (ok)
 //      - if user is sender and utxo is valid, decrease balance (ok)
 // - accumulate block hash
-#[derive(Clone)]
-pub struct UserAuxVar<F: PrimeField + Absorb> {
+pub struct UserAuxVar<F: PrimeField + Absorb + Absorbable> {
     pub block: BlockMetadataVar<F>,
     pub from: FpVar<F>,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
@@ -105,12 +110,26 @@ pub struct UserAuxVar<F: PrimeField + Absorb> {
     // openings mask - indicates if utxo should be opened. should be filled with true when user is sender.
     pub openings_mask: OpeningsMaskVar<F>,
     // inclusion proof showing committed_tx was included in tx tree
-    pub shielded_tx_inclusion_proof: Vec<FpVar<F>>,
+    pub shielded_tx_inclusion_proof: NArySparsePathVar<
+        TRANSACTION_TREE_ARITY,
+        TransactionTreeConfig<F>,
+        TransactionTreeConfigGadget<F>,
+        F,
+        SparseNAryTransactionTreeConfig<F>,
+        SparseNAryTransactionTreeConfigGadget<F>,
+    >,
     // inclusion proof showing committed_tx was signed
-    pub signer_pk_inclusion_proof: Vec<FpVar<F>>,
+    pub signer_pk_inclusion_proof: NArySparsePathVar<
+        SIGNER_TREE_ARITY,
+        SignerTreeConfig<F>,
+        SignerTreeConfigGadget<F>,
+        F,
+        SparseNArySignerTreeConfig<F>,
+        SparseNArySignerTreeConfigGadget<F>,
+    >,
 }
 
-impl<F: PrimeField + Absorb> AllocVar<UserAux<F>, F> for UserAuxVar<F> {
+impl<F: PrimeField + Absorb + Absorbable> AllocVar<UserAux<F>, F> for UserAuxVar<F> {
     fn new_variable<T: Borrow<UserAux<F>>>(
         cs: impl Into<Namespace<F>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
@@ -142,12 +161,12 @@ impl<F: PrimeField + Absorb> AllocVar<UserAux<F>, F> for UserAuxVar<F> {
             .collect::<Result<Vec<_>, _>>()?;
         let openings_mask =
             Vec::new_variable(cs.clone(), || Ok(user_aux.openings_mask.clone()), mode)?;
-        let shielded_tx_inclusion_proof = AllocVar::new_variable(
+        let shielded_tx_inclusion_proof = NArySparsePathVar::new_variable(
             cs.clone(),
             || Ok(user_aux.shielded_tx_inclusion_proof.clone()),
             mode,
         )?;
-        let signer_pk_inclusion_proof = AllocVar::new_variable(
+        let signer_pk_inclusion_proof = NArySparsePathVar::new_variable(
             cs.clone(),
             || Ok(user_aux.signer_pk_inclusion_proof.clone()),
             mode,
@@ -167,7 +186,7 @@ impl<F: PrimeField + Absorb> AllocVar<UserAux<F>, F> for UserAuxVar<F> {
 }
 
 impl<
-        F: PrimeField + Absorb,
+        F: PrimeField + Absorb + Absorbable,
         H: TwoToOneCRHScheme,
         T: TwoToOneCRHSchemeGadget<H, F>,
         A: Accumulator<F, H, T>,
@@ -191,7 +210,7 @@ impl<
         );
 
         // compute block hash and update accumulator value
-        let next_block_hash = BlockTreeVarCRH::evaluate(
+        let next_block_hash = BlockTreeVarCRHGriffin::evaluate(
             &self.plasma_blind_config.block_tree_leaf_config,
             &aux.block,
         )?;
@@ -209,20 +228,24 @@ impl<
         is_higher_tx_index.conditional_enforce_equal(&Boolean::Constant(true), &is_same_block)?;
 
         // check that shielded tx is in tx tree
-        self.plasma_blind_config.tx_tree.check_index(
-            &aux.block.tx_tree_root,
-            &aux.utxo_tree_root,
-            &next_tx_index,
-            &aux.shielded_tx_inclusion_proof,
-        )?;
+        aux.shielded_tx_inclusion_proof
+            .verify_membership(
+                &(),
+                &self.plasma_blind_config.tx_tree_n_to_one_config,
+                &aux.block.tx_tree_root,
+                &aux.utxo_tree_root,
+            )?
+            .enforce_equal(&Boolean::constant(true))?;
 
         // check that the signer bit is 1 for the corresponding transaction (i.e. pk is included)
-        self.plasma_blind_config.signer_tree.check_index(
-            &aux.block.signer_tree_root,
-            &aux.from,
-            &next_tx_index,
-            &aux.signer_pk_inclusion_proof,
-        )?;
+        aux.signer_pk_inclusion_proof
+            .verify_membership(
+                &(),
+                &self.plasma_blind_config.signer_tree_n_to_one_config,
+                &aux.block.signer_tree_root,
+                &aux.from,
+            )?
+            .enforce_equal(&Boolean::Constant(true))?;
 
         // validity of input utxos is already checked by the transaction validity circuit and the
         // aggregator, so we only need to process the output utxos?
@@ -294,12 +317,17 @@ mod tests {
     use plasmablind_core::{
         datastructures::{
             block::{Block, BlockMetadata},
+            blocktree::BLOCK_TREE_ARITY,
             nullifier::Nullifier,
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::{constraints::SignerTreeConfigGadget, SignerTree, SignerTreeConfig},
+            signerlist::{
+                constraints::SignerTreeConfigGadget, SignerTree, SignerTreeConfig,
+                SparseNArySignerTree,
+            },
             transparenttx::TransparentTransaction,
             txtree::{
-                constraints::TransactionTreeConfigGadget, TransactionTree, TransactionTreeConfig,
+                constraints::TransactionTreeConfigGadget, SparseNAryTransactionTree,
+                TransactionTree, TransactionTreeConfig,
             },
             user::User,
             utxo::UTXO,
@@ -310,9 +338,10 @@ mod tests {
             crh::{
                 poseidon_canonical_config,
                 utils::{
+                    initialize_griffin_config, initialize_n_to_one_config_griffin,
                     initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
                 },
-                BlockTreeCRH, IntervalCRH, PublicKeyCRH, UTXOCRH,
+                BlockTreeCRH, BlockTreeCRHGriffin, IntervalCRH, PublicKeyCRH, UTXOCRH,
             },
             sparsemt::MerkleSparseTree,
         },
@@ -330,33 +359,38 @@ mod tests {
         // poseidon crh only for now, should be configurable in the future
         let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
         let poseidon_config = initialize_poseidon_config::<Fr>();
+        let griffin_config = initialize_griffin_config::<Fr>();
 
         let utxo_crh_config = UTXOCRH::setup(&mut rng).unwrap();
         let shielded_tx_leaf_config = ();
         let tx_tree_leaf_config = ();
         let signer_tree_leaf_config = ();
         let nullifier_tree_leaf_config = IntervalCRH::setup(&mut rng).unwrap();
-        let block_tree_leaf_config = BlockTreeCRH::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = BlockTreeCRHGriffin::setup(&mut rng).unwrap();
 
-        let tx_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
-        let signer_tree_two_to_one_config = two_to_one_poseidon_config.clone();
         let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
-        let block_tree_two_to_one_config = two_to_one_poseidon_config.clone();
+        let block_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<BLOCK_TREE_ARITY, Fr>();
+        let tx_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<TRANSACTION_TREE_ARITY, Fr>();
+        let signer_tree_n_to_one_config =
+            initialize_n_to_one_config_griffin::<SIGNER_TREE_ARITY, Fr>();
 
         let config = PlasmaBlindConfig::new(
             poseidon_config.clone(),
+            griffin_config.clone(),
             utxo_crh_config,
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
             tx_tree_leaf_config,
-            tx_tree_two_to_one_config,
+            tx_tree_n_to_one_config,
             signer_tree_leaf_config,
-            signer_tree_two_to_one_config,
+            signer_tree_n_to_one_config,
             nullifier_tree_leaf_config,
             nullifier_tree_two_to_one_config,
-            block_tree_leaf_config,
-            block_tree_two_to_one_config,
+            block_tree_leaf_config.clone(),
+            block_tree_n_to_one_config.clone(),
         );
 
         let sender_sk = Fr::rand(&mut rng);
@@ -379,7 +413,7 @@ mod tests {
             ],
         };
         let shielded_tx = ShieldedTransaction::new(
-            &config.poseidon_config,
+            &config.griffin_config,
             &config.utxo_crh_config,
             &sender_sk,
             &tx,
@@ -392,16 +426,18 @@ mod tests {
         )
         .unwrap();
 
-        let signer_tree = SignerTree::new(
+        let signer_tree = SparseNArySignerTree::new(
             &config.signer_tree_leaf_config,
-            &config.signer_tree_two_to_one_config,
+            &config.signer_tree_n_to_one_config,
             &BTreeMap::from([(1, sender_pk)]),
+            &Fr::default(),
         )
         .unwrap();
-        let transaction_tree = TransactionTree::new(
+        let transaction_tree = SparseNAryTransactionTree::new(
             &(),
-            &config.shielded_tx_two_to_one_config,
+            &config.tx_tree_n_to_one_config,
             &BTreeMap::from([(1, utxo_tree.root())]),
+            &Fr::default(),
         )
         .unwrap();
 
@@ -419,8 +455,8 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        let shielded_tx_inclusion_proof = transaction_tree.generate_membership_proof(1).unwrap();
-        let signer_inclusion_proof = signer_tree.generate_membership_proof(1).unwrap();
+        let shielded_tx_inclusion_proof = transaction_tree.generate_proof(1).unwrap();
+        let signer_inclusion_proof = signer_tree.generate_proof(1).unwrap();
         let sender_aux = UserAux {
             block,
             from: sender_pk,

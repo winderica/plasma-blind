@@ -1,23 +1,25 @@
+use nmerkle_trees::sparse::NArySparsePath;
 use plasmablind_core::datastructures::{
     block::{Block, BlockMetadata},
+    blocktree::{BlockTreeConfig, SparseNAryBlockTreeConfig, BLOCK_TREE_ARITY},
     keypair::PublicKey,
     shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-    signerlist::SignerTreeConfig,
-    txtree::TransactionTreeConfig,
+    signerlist::{SignerTreeConfig, SparseNArySignerTreeConfig},
+    txtree::{SparseNAryTransactionTreeConfig, TransactionTreeConfig, TRANSACTION_TREE_ARITY},
     utxo::UTXO,
 };
 
 use ark_crypto_primitives::{merkle_tree::Path, sponge::Absorb};
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
+use sonobe_primitives::transcripts::Absorbable;
 
 pub mod circuits;
 
 // indicates which utxo will be processed by balance circuit
 pub type OpeningsMask = Vec<bool>;
 
-#[derive(Clone, Debug)]
-pub struct UserAux<F: PrimeField + Absorb> {
+pub struct UserAux<F: PrimeField + Absorb + Absorbable> {
     pub block: BlockMetadata<F>,
     pub from: F,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
@@ -31,7 +33,12 @@ pub struct UserAux<F: PrimeField + Absorb> {
     // openings mask - indicates if utxo should be opened. should be filled with true when user is sender.
     pub openings_mask: Vec<bool>,
     // inclusion proof showing committed_tx was included in tx tree
-    pub shielded_tx_inclusion_proof: Vec<F>,
+    pub shielded_tx_inclusion_proof: NArySparsePath<
+        TRANSACTION_TREE_ARITY,
+        TransactionTreeConfig<F>,
+        SparseNAryTransactionTreeConfig<F>,
+    >,
     // inclusion proof showing committed_tx was signed
-    pub signer_pk_inclusion_proof: Vec<F>,
+    pub signer_pk_inclusion_proof:
+        NArySparsePath<BLOCK_TREE_ARITY, SignerTreeConfig<F>, SparseNArySignerTreeConfig<F>>,
 }
