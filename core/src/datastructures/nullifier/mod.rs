@@ -4,10 +4,10 @@ use ark_crypto_primitives::{
     Error,
     crh::{
         CRHScheme,
-        poseidon::{CRH, TwoToOneCRH},
+        poseidon::TwoToOneCRH,
     },
     merkle_tree::{Config, IdentityDigestConverter},
-    sponge::{Absorb, poseidon::PoseidonConfig},
+    sponge::Absorb,
 };
 use ark_ff::{BigInteger, PrimeField};
 use sonobe_primitives::{

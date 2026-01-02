@@ -1,5 +1,4 @@
 use ark_crypto_primitives::{crh::poseidon::constraints::CRHParametersVar, sponge::Absorb};
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
     GR1CSVar,
@@ -19,13 +18,7 @@ use plasmablind_core::datastructures::{
     signerlist::constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
     txtree::{TRANSACTION_TREE_ARITY, TransactionTreeConfig},
 };
-use plasmablind_core::datastructures::{
-    signerlist::NARY_SIGNER_TREE_HEIGHT,
-    txtree::{NARY_TRANSACTION_TREE_HEIGHT, constraints::TransactionTreeGadget},
-};
-use plasmablind_core::{
-    NULLIFIER_TREE_HEIGHT, datastructures::signerlist::constraints::SignerTreeGadget,
-};
+use plasmablind_core::NULLIFIER_TREE_HEIGHT;
 use plasmablind_core::{
     config::PlasmaBlindConfig, datastructures::nullifier::constraints::NullifierTreeGadgeet,
 };
@@ -73,7 +66,7 @@ impl<FS1: FoldingSchemeDef, FS2: FoldingSchemeDef> Clone for AggregatorCircuitSt
             V: self.V.clone(),
             cf_U: self.cf_U.clone(),
 
-            tx_index: self.tx_index.clone(),
+            tx_index: self.tx_index,
             tx_root: self.tx_root,
             nullifier_root: self.nullifier_root,
             signer_root: self.signer_root,
@@ -328,7 +321,7 @@ pub struct AggregatorCircuit<
     pub pp_hash: <FS1::VC as VectorCommitmentDef>::Scalar,
     pub dk1: FS1::DeciderKey,
     pub dk2: FS2::DeciderKey,
-    pub _r: PhantomData<(R)>,
+    pub _r: PhantomData<R>,
 }
 
 impl<
@@ -603,10 +596,13 @@ impl<
             cf_UU = FS2::Gadget::verify(&(), &mut transcript2, [&cf_UU], [&cf_u], cf_proof)?;
         }
 
-        let utxo_tree = UTXOTreeGadget::new(
-            self.config.shielded_tx_leaf_config,
-            CRHParametersVar::new_constant(cs.clone(), &self.config.shielded_tx_two_to_one_config)?,
-        );
+        let utxo_tree = {
+            self.config.shielded_tx_leaf_config;
+            UTXOTreeGadget::new(
+                (),
+                CRHParametersVar::new_constant(cs.clone(), &self.config.shielded_tx_two_to_one_config)?,
+            )
+        };
 
         let nullifier_tree = NullifierTreeGadgeet::new(
             CRHParametersVar::new_constant(cs.clone(), &self.config.nullifier_tree_leaf_config)?,
@@ -785,15 +781,15 @@ mod tests {
         circuit::TransactionValidityCircuit,
         datastructures::{
             block::BlockMetadata,
-            blocktree::{BLOCK_TREE_ARITY, BlockTree, SparseNAryBlockTree},
+            blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
             shieldedtx::UTXOTree,
-            signerlist::{SIGNER_TREE_ARITY, SignerTree, SparseNArySignerTree},
+            signerlist::{SIGNER_TREE_ARITY, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
-            txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY, TransactionTree},
+            txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY},
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
         },
         primitives::crh::{
-            BlockTreeCRH, BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
+            BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
             utils::{
                 initialize_griffin_config, initialize_n_to_one_config_griffin,
                 initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
@@ -801,21 +797,17 @@ mod tests {
         },
     };
     use sonobe_fs::{
-        FoldingSchemeDecider, FoldingSchemeKeyGenerator, FoldingSchemeOps,
+        FoldingSchemeDecider, FoldingSchemeKeyGenerator,
         FoldingSchemePreprocessor, FoldingSchemeProver, nova::Nova, ova::CycleFoldOva,
     };
     use sonobe_ivc::{
-        IVC, IVCStatefulProver,
+        IVC,
         compilers::cyclefold::{CycleFoldBasedIVC, circuits::CycleFoldCircuit},
     };
     use sonobe_primitives::{
         arithmetizations::r1cs::R1CS,
-        circuits::{
-            AssignmentsOwned, ConstraintSystemBuilder,
-            utils::{CircuitForTest, satisfying_assignments_for_test},
-        },
+        circuits::ConstraintSystemBuilder,
         commitments::pedersen::Pedersen,
-        traits::CF1,
         transcripts::griffin::{GriffinParams, sponge::GriffinSponge},
     };
 
@@ -1019,7 +1011,7 @@ mod tests {
             tx_tree_root: transactions_tree.root(),
             signer_tree_root: signer_tree.root(),
             nullifier_tree_root: Fr::default(),
-            height: block_height as usize,
+            height: block_height,
         };
         let block_inclusion_proof = {
             block_tree.update(block_height, &prev_block)?;
@@ -1049,7 +1041,7 @@ mod tests {
                     .cloned()
                     .collect::<Vec<_>>();
 
-                if owned_utxos.len() > 0 {
+                if !owned_utxos.is_empty() {
                     let mut tx = TransparentTransaction::default();
 
                     let mut input_utxos_proofs = vec![UTXOProof::default(); 4];

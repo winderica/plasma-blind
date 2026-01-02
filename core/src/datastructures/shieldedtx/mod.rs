@@ -4,7 +4,7 @@ use ark_crypto_primitives::{
     Error,
     crh::{CRHScheme, TwoToOneCRHScheme, poseidon::TwoToOneCRH},
     merkle_tree::{Config, IdentityDigestConverter},
-    sponge::{Absorb, poseidon::PoseidonConfig},
+    sponge::Absorb,
 };
 use ark_ff::PrimeField;
 use sonobe_primitives::transcripts::{Absorbable, griffin::GriffinParams};

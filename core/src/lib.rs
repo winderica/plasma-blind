@@ -46,17 +46,16 @@ pub mod tests {
             block::BlockMetadata,
             blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::{SIGNER_TREE_ARITY, SignerTree, SparseNArySignerTree},
+            signerlist::{SIGNER_TREE_ARITY, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
-            txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY, TransactionTree},
+            txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY},
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
         },
         primitives::{
             crh::{
-                BlockTreeCRH, BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
+                BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
                 utils::{
-                    initialize_blockcrh_config_griffin, initialize_griffin_config,
-                    initialize_n_to_one_config, initialize_n_to_one_config_griffin,
+                    initialize_griffin_config, initialize_n_to_one_config_griffin,
                     initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
                 },
             },

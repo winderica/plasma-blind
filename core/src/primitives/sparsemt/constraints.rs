@@ -68,7 +68,7 @@ impl<
         index: &impl ToBitsGadgetExt<F>,
         proof: &[P::InnerDigest],
     ) -> Result<Boolean<F>, SynthesisError> {
-        self.recover_root(leaf, &index.to_n_bits_le((P::HEIGHT - 1))?, proof)?
+        self.recover_root(leaf, &index.to_n_bits_le(P::HEIGHT - 1)?, proof)?
             .is_eq(root)
     }
 
@@ -118,7 +118,7 @@ impl<
         proof: &[P::InnerDigest],
         should_enforce: &Boolean<F>,
     ) -> Result<(), SynthesisError> {
-        self.recover_root(leaf, &index.to_n_bits_le((P::HEIGHT - 1))?, proof)?
+        self.recover_root(leaf, &index.to_n_bits_le(P::HEIGHT - 1)?, proof)?
             .conditional_enforce_equal(root, should_enforce)
     }
 
@@ -130,7 +130,7 @@ impl<
         index: &FpVar<F>,
         proof: &[P::InnerDigest],
     ) -> Result<(P::InnerDigest, P::InnerDigest), SynthesisError> {
-        let index_bits = index.to_n_bits_le((P::HEIGHT - 1))?;
+        let index_bits = index.to_n_bits_le(P::HEIGHT - 1)?;
         Ok((
             self.recover_root(old_leaf, &index_bits, proof)?,
             self.recover_root(new_leaf, &index_bits, proof)?,

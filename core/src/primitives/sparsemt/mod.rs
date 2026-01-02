@@ -46,7 +46,7 @@ impl<
             tree: BTreeMap::new(),
             leaf_hash_params: leaf_hash_params.clone(),
             two_to_one_hash_params: two_to_one_hash_params.clone(),
-            root: Some(empty_hashes[(P::HEIGHT - 1)]),
+            root: Some(empty_hashes[P::HEIGHT - 1]),
             empty_hashes,
         }
     }

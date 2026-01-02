@@ -14,9 +14,7 @@ use plasmablind_core::datastructures::txtree::{
     SparseNAryTransactionTree, SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY,
     TransactionTreeConfig,
 };
-use plasmablind_core::datastructures::{
-    nullifier::NullifierTree, signerlist::SignerTree, txtree::TransactionTree,
-};
+use plasmablind_core::datastructures::nullifier::NullifierTree;
 use sonobe_fs::{
     DeciderKey, FoldingInstance, FoldingSchemeGadgetOpsFull, FoldingSchemeGadgetOpsPartial,
     GroupBasedFoldingSchemeSecondary,
@@ -290,7 +288,7 @@ impl<
             }
             let (WW, U, u, pi) = proof.unwrap();
             if u.public_inputs()
-                != &[
+                != [
                     &[*sender][..],
                     &tx.input_nullifiers
                         .iter()

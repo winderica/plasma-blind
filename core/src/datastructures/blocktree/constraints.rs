@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
-    crh::poseidon::constraints::{CRHGadget, TwoToOneCRHGadget},
+    crh::poseidon::constraints::TwoToOneCRHGadget,
     merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };

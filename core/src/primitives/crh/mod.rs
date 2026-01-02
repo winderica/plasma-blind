@@ -19,8 +19,7 @@ use sonobe_primitives::transcripts::{
     griffin::{GriffinParams, sponge::GriffinSponge},
 };
 use utils::{
-    initialize_blockcrh_config, initialize_blockcrh_config_griffin, initialize_publickeycrh_config,
-    initialize_utxocrh_config, initialize_utxocrh_config_griffin,
+    initialize_blockcrh_config, initialize_blockcrh_config_griffin, initialize_publickeycrh_config, initialize_utxocrh_config_griffin,
 };
 
 use crate::{

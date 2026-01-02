@@ -1,15 +1,9 @@
 use ark_crypto_primitives::{
     crh::{
-        poseidon::{
-            constraints::{CRHParametersVar, TwoToOneCRHGadget},
-            TwoToOneCRH,
-        },
         CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget,
     },
-    merkle_tree::constraints::PathVar,
     sponge::Absorb,
 };
-use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
@@ -21,14 +15,9 @@ use ark_r1cs_std::{
 use ark_relations::gr1cs::{ConstraintSystemRef, Namespace, SynthesisError};
 use nmerkle_trees::sparse::constraints::NArySparsePathVar;
 use plasmablind_core::{
-    config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
+    config::PlasmaBlindConfigVar,
     datastructures::{
         block::constraints::BlockMetadataVar,
-        keypair::constraints::PublicKeyVar,
-        shieldedtx::{
-            constraints::{ShieldedTransactionConfigGadget, ShieldedTransactionVar},
-            ShieldedTransactionConfig,
-        },
         signerlist::{
             constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
             SignerTreeConfig, SparseNArySignerTreeConfig, SIGNER_TREE_ARITY,
@@ -41,11 +30,7 @@ use plasmablind_core::{
     },
     primitives::{
         accumulator::constraints::Accumulator,
-        crh::{
-            constraints::{BlockTreeVarCRH, BlockTreeVarCRHGriffin, PublicKeyVarCRH, UTXOVarCRH},
-            PublicKeyCRH,
-        },
-        sparsemt::{constraints::SparseConfigGadget, SparseConfig},
+        crh::constraints::{BlockTreeVarCRHGriffin, UTXOVarCRH},
     },
 };
 use sonobe_primitives::{algebra::ops::bits::ToBitsGadgetExt, transcripts::Absorbable};
@@ -142,7 +127,7 @@ impl<F: PrimeField + Absorb + Absorbable> AllocVar<UserAux<F>, F> for UserAuxVar
             BlockMetadataVar::new_variable(cs.clone(), || Ok(user_aux.block.clone()), mode)?;
         let from = FpVar::new_variable(cs.clone(), || Ok(user_aux.from), mode)?;
         let utxo_tree_root =
-            FpVar::new_variable(cs.clone(), || Ok(user_aux.utxo_tree_root.clone()), mode)?;
+            FpVar::new_variable(cs.clone(), || Ok(user_aux.utxo_tree_root), mode)?;
         let tx_index = FpVar::new_variable(cs.clone(), || Ok(user_aux.tx_index), mode)?;
         let shielded_tx_utxos = Vec::<UTXOVar<_>>::new_variable(
             cs.clone(),

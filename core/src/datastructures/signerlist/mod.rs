@@ -2,12 +2,12 @@ use std::marker::PhantomData;
 
 use crate::primitives::{
     crh::IdentityCRH,
-    sparsemt::{MerkleSparseTree, SparseConfig},
+    sparsemt::MerkleSparseTree,
 };
 use ark_crypto_primitives::{
-    crh::poseidon::{CRH, TwoToOneCRH},
+    crh::poseidon::TwoToOneCRH,
     merkle_tree::{Config, IdentityDigestConverter},
-    sponge::{Absorb, poseidon::PoseidonConfig},
+    sponge::Absorb,
 };
 use ark_ff::PrimeField;
 use nmerkle_trees::sparse::{NAryMerkleSparseTree, traits::NArySparseConfig};

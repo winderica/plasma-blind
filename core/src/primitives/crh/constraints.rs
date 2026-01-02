@@ -186,12 +186,10 @@ impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<BlockTreeCRHGriffin<F>
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
         GriffinSpongeVar::evaluate(
             parameters,
-            &vec![
-                input.tx_tree_root.clone(),
+            &[input.tx_tree_root.clone(),
                 input.signer_tree_root.clone(),
                 input.nullifier_tree_root.clone(),
-                input.height.to_fp()?,
-            ],
+                input.height.to_fp()?],
         )
     }
 }

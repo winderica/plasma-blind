@@ -1,16 +1,13 @@
 use nmerkle_trees::sparse::NArySparsePath;
 use plasmablind_core::datastructures::{
-    block::{Block, BlockMetadata},
-    blocktree::{BlockTreeConfig, SparseNAryBlockTreeConfig, BLOCK_TREE_ARITY},
-    keypair::PublicKey,
-    shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
+    block::BlockMetadata,
+    blocktree::BLOCK_TREE_ARITY,
     signerlist::{SignerTreeConfig, SparseNArySignerTreeConfig},
     txtree::{SparseNAryTransactionTreeConfig, TransactionTreeConfig, TRANSACTION_TREE_ARITY},
     utxo::UTXO,
 };
 
-use ark_crypto_primitives::{merkle_tree::Path, sponge::Absorb};
-use ark_ec::CurveGroup;
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
 use sonobe_primitives::transcripts::Absorbable;
 

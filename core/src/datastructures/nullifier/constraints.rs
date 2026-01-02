@@ -7,10 +7,7 @@ use ark_crypto_primitives::crh::CRHSchemeGadget;
 use ark_crypto_primitives::crh::poseidon::constraints::TwoToOneCRHGadget;
 use ark_crypto_primitives::merkle_tree::IdentityDigestConverter;
 use ark_crypto_primitives::merkle_tree::constraints::ConfigGadget;
-use ark_crypto_primitives::{
-    crh::poseidon::constraints::{CRHGadget, CRHParametersVar},
-    sponge::Absorb,
-};
+use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::PrimeField;
 use ark_r1cs_std::prelude::{Boolean, ToBitsGadget};
 use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
