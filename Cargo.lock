@@ -742,6 +742,7 @@ dependencies = [
 [[package]]
 name = "nmerkle-trees"
 version = "0.1.0"
+source = "git+https://github.com/dmpierre/ark-nmerkle-trees?rev=f3df688ae94d43dc9a217b545ee2bee11c41da96#f3df688ae94d43dc9a217b545ee2bee11c41da96"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ff",
