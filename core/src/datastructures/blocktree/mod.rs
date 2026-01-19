@@ -40,7 +40,7 @@ pub struct SparseNAryBlockTreeConfig<F> {
     _f: PhantomData<F>,
 }
 
-impl<F: Absorb + PrimeField + Absorbable> NArySparseConfig<BLOCK_TREE_ARITY, BlockTreeConfig<F>>
+impl<F: Absorb + PrimeField + Absorbable> NArySparseConfig<BlockTreeConfig<F>>
     for SparseNAryBlockTreeConfig<F>
 {
     type NToOneHashParams = GriffinParams<F>;

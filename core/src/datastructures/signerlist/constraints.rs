@@ -27,7 +27,6 @@ pub struct SparseNArySignerTreeConfigGadget<F: Absorb + PrimeField> {
 
 impl<F: PrimeField + Absorb + Absorbable>
     NArySparseConfigGadget<
-        SIGNER_TREE_ARITY,
         SignerTreeConfig<F>,
         SignerTreeConfigGadget<F>,
         F,

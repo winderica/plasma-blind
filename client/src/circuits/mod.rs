@@ -300,36 +300,22 @@ mod tests {
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::{rand::RngCore, test_rng};
     use plasmablind_core::{
-        datastructures::{
-            block::{Block, BlockMetadata},
-            blocktree::BLOCK_TREE_ARITY,
-            nullifier::Nullifier,
-            shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::{
-                constraints::SignerTreeConfigGadget, SignerTree, SignerTreeConfig,
-                SparseNArySignerTree,
-            },
-            transparenttx::TransparentTransaction,
-            txtree::{
-                constraints::TransactionTreeConfigGadget, SparseNAryTransactionTree,
-                TransactionTree, TransactionTreeConfig,
-            },
-            user::User,
-            utxo::UTXO,
-            TX_IO_SIZE,
-        },
-        primitives::{
+        config::PlasmaBlindConfig, datastructures::{
+            TX_IO_SIZE, block::{Block, BlockMetadata}, blocktree::BLOCK_TREE_ARITY, nullifier::Nullifier, shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig}, signerlist::{
+                SignerTree, SignerTreeConfig, SparseNArySignerTree, constraints::SignerTreeConfigGadget
+            }, transparenttx::TransparentTransaction, txtree::{
+                SparseNAryTransactionTree, TransactionTree, TransactionTreeConfig, constraints::TransactionTreeConfigGadget
+            }, user::User, utxo::UTXO
+        }, primitives::{
             accumulator::constraints::PoseidonAccumulatorVar,
             crh::{
-                poseidon_canonical_config,
-                utils::{
+                BlockTreeCRH, BlockTreeCRHGriffin, IntervalCRH, PublicKeyCRH, UTXOCRH, poseidon_canonical_config, utils::{
                     initialize_griffin_config, initialize_n_to_one_config_griffin,
                     initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
-                },
-                BlockTreeCRH, BlockTreeCRHGriffin, IntervalCRH, PublicKeyCRH, UTXOCRH,
+                }
             },
             sparsemt::MerkleSparseTree,
-        },
+        }
     };
 
     use super::*;

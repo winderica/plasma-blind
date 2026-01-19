@@ -13,12 +13,12 @@ use ark_relations::gr1cs::{
 use ark_std::{borrow::Borrow, fmt::Debug, marker::PhantomData, rand::RngCore};
 use nmerkle_trees::sparse::{NArySparsePath, constraints::NArySparsePathVar};
 use num_bigint::BigUint;
+use plasmablind_core::NULLIFIER_TREE_HEIGHT;
 use plasmablind_core::datastructures::{
     shieldedtx::constraints::UTXOTreeGadget,
     signerlist::constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
     txtree::{TRANSACTION_TREE_ARITY, TransactionTreeConfig},
 };
-use plasmablind_core::NULLIFIER_TREE_HEIGHT;
 use plasmablind_core::{
     config::PlasmaBlindConfig, datastructures::nullifier::constraints::NullifierTreeGadgeet,
 };
@@ -600,7 +600,10 @@ impl<
             self.config.shielded_tx_leaf_config;
             UTXOTreeGadget::new(
                 (),
-                CRHParametersVar::new_constant(cs.clone(), &self.config.shielded_tx_two_to_one_config)?,
+                CRHParametersVar::new_constant(
+                    cs.clone(),
+                    &self.config.shielded_tx_two_to_one_config,
+                )?,
             )
         };
 
@@ -690,13 +693,14 @@ impl<
         )?;
 
         tx_tree_inclusion_proof
-            .verify_membership(
+            .calculate_root(
                 &(),
                 &plasma_blind_config_var.tx_tree_n_to_one_config,
-                &tx_root,
                 &utxo_tree.build_root(&tx.output_utxo_commitments)?,
             )?
-            .enforce_equal(&Boolean::constant(true))?;
+            .enforce_equal(&tx_root)?;
+
+        tx_tree_inclusion_proof.index.enforce_equal(&tx_index)?;
 
         for j in 0..TX_IO_SIZE {
             let is_dummy = tx.input_nullifiers[j].value.is_zero()?;
@@ -732,13 +736,14 @@ impl<
         }
 
         signer_tree_inclusion_proof
-            .verify_membership(
+            .calculate_root(
                 &(),
                 &plasma_blind_config_var.signer_tree_n_to_one_config,
-                &signer_root,
                 &pk,
             )?
-            .enforce_equal(&Boolean::constant(true))?;
+            .enforce_equal(&signer_root)?;
+
+        signer_tree_inclusion_proof.index.enforce_equal(&tx_index)?;
 
         (&next_tx_index - tx_index - FpVar::one()).to_n_bits_le(64)?;
 
@@ -797,8 +802,8 @@ mod tests {
         },
     };
     use sonobe_fs::{
-        FoldingSchemeDecider, FoldingSchemeKeyGenerator,
-        FoldingSchemePreprocessor, FoldingSchemeProver, nova::Nova, ova::CycleFoldOva,
+        FoldingSchemeDecider, FoldingSchemeKeyGenerator, FoldingSchemePreprocessor,
+        FoldingSchemeProver, nova::Nova, ova::CycleFoldOva,
     };
     use sonobe_ivc::{
         IVC,

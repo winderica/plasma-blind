@@ -38,7 +38,7 @@ pub struct SparseNAryTransactionTreeConfig<F> {
 }
 
 impl<F: Absorb + PrimeField + Absorbable>
-    NArySparseConfig<TRANSACTION_TREE_ARITY, TransactionTreeConfig<F>>
+    NArySparseConfig<TransactionTreeConfig<F>>
     for SparseNAryTransactionTreeConfig<F>
 {
     type NToOneHashParams = GriffinParams<F>;

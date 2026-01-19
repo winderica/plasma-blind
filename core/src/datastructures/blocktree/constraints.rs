@@ -27,7 +27,6 @@ pub struct SparseNAryBlockTreeConfigGadget<F: Absorb + PrimeField> {
 
 impl<F: PrimeField + Absorb + Absorbable>
     NArySparseConfigGadget<
-        BLOCK_TREE_ARITY,
         BlockTreeConfig<F>,
         BlockTreeConfigGadget<F>,
         F,

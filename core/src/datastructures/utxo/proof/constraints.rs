@@ -135,32 +135,40 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
         )?;
 
         // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
-        let is_valid_tx = proof.tx_inclusion_proof.verify_membership(
-            &(),
-            &plasma_blind_config.tx_tree_n_to_one_config,
-            &proof.block.tx_tree_root,
-            &utxo_tree_root,
-        )?;
-        is_valid_tx.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
+        proof
+            .tx_inclusion_proof
+            .conditionally_calculate_root(
+                &(),
+                &plasma_blind_config.tx_tree_n_to_one_config,
+                &utxo_tree_root,
+                &is_not_dummy,
+            )?
+            .conditional_enforce_equal(&proof.block.tx_tree_root, &is_not_dummy)?;
+        proof.tx_inclusion_proof.index.enforce_equal(&info.tx_index)?;
 
         // 3. the transaction tree T has been signed by the sender s
-        let is_valid_signer = proof.signer_inclusion_proof.verify_membership(
-            &(),
-            &plasma_blind_config.signer_tree_n_to_one_config,
-            &proof.block.signer_tree_root,
-            &info.from,
-        )?;
-        is_valid_signer.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
+        proof
+            .signer_inclusion_proof
+            .conditionally_calculate_root(
+                &(),
+                &plasma_blind_config.signer_tree_n_to_one_config,
+                &info.from,
+                &is_not_dummy,
+            )?
+            .conditional_enforce_equal(&proof.block.signer_tree_root, &is_not_dummy)?;
+        proof.signer_inclusion_proof.index.enforce_equal(&info.tx_index)?;
 
         // 4. block is contained within the block tree
-        let is_valid = proof.block_inclusion_proof.verify_membership(
-            &plasma_blind_config.block_tree_leaf_config,
-            &plasma_blind_config.block_tree_n_to_one_config,
-            block_tree_root,
-            &proof.block,
-        )?;
-
-        is_valid.conditional_enforce_equal(&Boolean::Constant(true), &is_not_dummy)?;
+        proof
+            .block_inclusion_proof
+            .conditionally_calculate_root(
+                &plasma_blind_config.block_tree_leaf_config,
+                &plasma_blind_config.block_tree_n_to_one_config,
+                &proof.block,
+                &is_not_dummy,
+            )?
+            .conditional_enforce_equal(&block_tree_root, &is_not_dummy)?;
+        proof.block_inclusion_proof.index.enforce_equal(&info.block_height)?;
 
         // 5. nullifier computation is correct
         nullifier.value.enforce_equal(&is_not_dummy.select(

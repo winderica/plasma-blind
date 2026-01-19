@@ -28,7 +28,6 @@ pub struct SparseNAryTransactionTreeConfigGadget<F: Absorb + PrimeField> {
 
 impl<F: PrimeField + Absorb + Absorbable>
     NArySparseConfigGadget<
-        TRANSACTION_TREE_ARITY,
         TransactionTreeConfig<F>,
         TransactionTreeConfigGadget<F>,
         F,

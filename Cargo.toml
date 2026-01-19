@@ -21,7 +21,7 @@ sonobe-ivc = { git = "https://github.com/dmpierre/sonobe", rev = "8269ea4de10b8b
 sonobe-primitives = { git = "https://github.com/dmpierre/sonobe", rev = "8269ea4de10b8b63fec0e34c6752d50636b909a3" }
 thiserror = "2.0.16"
 num-bigint = { version = "0.4.3" }
-nmerkle-trees = { git = "https://github.com/dmpierre/ark-nmerkle-trees" }
+nmerkle-trees = { path = "../ark-nmerkle-trees" }
 
 plasmablind-core = { path = "core" }
 

@@ -40,7 +40,7 @@ pub struct SparseNArySignerTreeConfig<F> {
     _f: PhantomData<F>,
 }
 
-impl<F: Absorb + PrimeField + Absorbable> NArySparseConfig<SIGNER_TREE_ARITY, SignerTreeConfig<F>>
+impl<F: Absorb + PrimeField + Absorbable> NArySparseConfig<SignerTreeConfig<F>>
     for SparseNArySignerTreeConfig<F>
 {
     type NToOneHashParams = GriffinParams<F>;
