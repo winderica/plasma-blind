@@ -4,7 +4,9 @@ use sonobe_primitives::transcripts::griffin::sponge::GriffinSpongeVar;
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::crh::CRHSchemeGadget;
-use ark_crypto_primitives::crh::poseidon::constraints::TwoToOneCRHGadget;
+use ark_crypto_primitives::crh::poseidon::constraints::{
+    CRHGadget, CRHParametersVar, TwoToOneCRHGadget,
+};
 use ark_crypto_primitives::merkle_tree::IdentityDigestConverter;
 use ark_crypto_primitives::merkle_tree::constraints::ConfigGadget;
 use ark_crypto_primitives::sponge::Absorb;
@@ -26,11 +28,11 @@ pub struct NullifierVar<F: PrimeField> {
 
 impl<F: PrimeField + Absorb + Absorbable> NullifierVar<F> {
     pub fn new(
-        cfg: &GriffinParamsVar<F>,
+        cfg: &CRHParametersVar<F>,
         sk: &FpVar<F>,
         utxo_info: &UTXOInfoVar<F>,
     ) -> Result<Self, SynthesisError> {
-        let digest = GriffinSpongeVar::evaluate(
+        let digest = CRHGadget::evaluate(
             cfg,
             &[
                 sk.clone(),

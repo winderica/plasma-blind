@@ -144,7 +144,10 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
                 &is_not_dummy,
             )?
             .conditional_enforce_equal(&proof.block.tx_tree_root, &is_not_dummy)?;
-        proof.tx_inclusion_proof.index.enforce_equal(&info.tx_index)?;
+        proof
+            .tx_inclusion_proof
+            .index
+            .enforce_equal(&info.tx_index)?;
 
         // 3. the transaction tree T has been signed by the sender s
         proof
@@ -156,7 +159,10 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
                 &is_not_dummy,
             )?
             .conditional_enforce_equal(&proof.block.signer_tree_root, &is_not_dummy)?;
-        proof.signer_inclusion_proof.index.enforce_equal(&info.tx_index)?;
+        proof
+            .signer_inclusion_proof
+            .index
+            .enforce_equal(&info.tx_index)?;
 
         // 4. block is contained within the block tree
         proof
@@ -168,11 +174,14 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
                 &is_not_dummy,
             )?
             .conditional_enforce_equal(&block_tree_root, &is_not_dummy)?;
-        proof.block_inclusion_proof.index.enforce_equal(&info.block_height)?;
+        proof
+            .block_inclusion_proof
+            .index
+            .enforce_equal(&info.block_height)?;
 
         // 5. nullifier computation is correct
         nullifier.value.enforce_equal(&is_not_dummy.select(
-            &NullifierVar::new(&plasma_blind_config.griffin_config, sk, info)?.value,
+            &NullifierVar::new(&plasma_blind_config.poseidon_config, sk, info)?.value,
             &FpVar::zero(),
         )?)?;
 
