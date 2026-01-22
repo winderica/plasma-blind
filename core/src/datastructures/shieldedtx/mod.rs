@@ -4,7 +4,7 @@ use ark_crypto_primitives::{
     Error,
     crh::{CRHScheme, TwoToOneCRHScheme, poseidon::TwoToOneCRH},
     merkle_tree::{Config, IdentityDigestConverter},
-    sponge::Absorb,
+    sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ff::PrimeField;
 use sonobe_primitives::transcripts::{Absorbable, griffin::GriffinParams};
@@ -32,8 +32,8 @@ pub struct ShieldedTransaction<F> {
 
 impl<F: Absorb + PrimeField + Absorbable> ShieldedTransaction<F> {
     pub fn new(
-        nullifier_hash_config: &GriffinParams<F>,
-        utxo_hash_config: &GriffinParams<F>,
+        nullifier_hash_config: &PoseidonConfig<F>,
+        utxo_hash_config: &PoseidonConfig<F>,
         sk: &F,
         transparent_tx: &TransparentTransaction<F>,
     ) -> Result<Self, Error> {

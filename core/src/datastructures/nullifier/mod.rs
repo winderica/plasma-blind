@@ -4,10 +4,10 @@ use ark_crypto_primitives::{
     Error,
     crh::{
         CRHScheme,
-        poseidon::TwoToOneCRH,
+        poseidon::{CRH, TwoToOneCRH},
     },
     merkle_tree::{Config, IdentityDigestConverter},
-    sponge::Absorb,
+    sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ff::{BigInteger, PrimeField};
 use sonobe_primitives::{
@@ -35,8 +35,8 @@ pub struct Nullifier<F> {
 }
 
 impl<F: PrimeField + Absorb + Absorbable> Nullifier<F> {
-    pub fn new(cfg: &GriffinParams<F>, sk: F, utxo_info: &UTXOInfo<F>) -> Result<Self, Error> {
-        let digest = GriffinSponge::evaluate(
+    pub fn new(cfg: &PoseidonConfig<F>, sk: F, utxo_info: &UTXOInfo<F>) -> Result<Self, Error> {
+        let digest = CRH::evaluate(
             cfg,
             [
                 sk,

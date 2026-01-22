@@ -1,13 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::primitives::{
-    crh::IdentityCRH,
-    sparsemt::MerkleSparseTree,
-};
+use crate::primitives::{crh::IdentityCRH, sparsemt::MerkleSparseTree};
 use ark_crypto_primitives::{
-    crh::poseidon::TwoToOneCRH,
+    crh::poseidon::{CRH, TwoToOneCRH},
     merkle_tree::{Config, IdentityDigestConverter},
-    sponge::Absorb,
+    sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ff::PrimeField;
 use nmerkle_trees::sparse::{NAryMerkleSparseTree, traits::NArySparseConfig};
@@ -43,8 +40,8 @@ pub struct SparseNArySignerTreeConfig<F> {
 impl<F: Absorb + PrimeField + Absorbable> NArySparseConfig<SignerTreeConfig<F>>
     for SparseNArySignerTreeConfig<F>
 {
-    type NToOneHashParams = GriffinParams<F>;
-    type NToOneHash = GriffinSponge<F>;
+    type NToOneHashParams = PoseidonConfig<F>;
+    type NToOneHash = CRH<F>;
     const HEIGHT: u64 = NARY_SIGNER_TREE_HEIGHT;
 }
 

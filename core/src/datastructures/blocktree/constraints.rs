@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
-    crh::poseidon::constraints::TwoToOneCRHGadget,
+    crh::poseidon::constraints::{CRHGadget, TwoToOneCRHGadget},
     merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
@@ -14,7 +14,8 @@ use super::{BLOCK_TREE_ARITY, BlockTreeConfig, NARY_BLOCK_TREE_HEIGHT, SparseNAr
 use crate::{
     datastructures::block::constraints::BlockMetadataVar,
     primitives::{
-        crh::constraints::BlockTreeVarCRHGriffin, sparsemt::constraints::MerkleSparseTreeGadget,
+        crh::constraints::{BlockTreeVarCRH, BlockTreeVarCRHGriffin},
+        sparsemt::constraints::MerkleSparseTreeGadget,
     },
 };
 
@@ -34,7 +35,7 @@ impl<F: PrimeField + Absorb + Absorbable>
     > for SparseNAryBlockTreeConfigGadget<F>
 {
     const HEIGHT: u64 = NARY_BLOCK_TREE_HEIGHT;
-    type NToOneHash = GriffinSpongeVar<F>;
+    type NToOneHash = CRHGadget<F>;
 }
 
 pub struct BlockTreeConfigGadget<F: Absorb + PrimeField> {
@@ -48,7 +49,7 @@ impl<F: Absorb + PrimeField + Absorbable> ConfigGadget<BlockTreeConfig<F>, F>
     type LeafDigest = FpVar<F>;
     type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
     type InnerDigest = FpVar<F>;
-    type LeafHash = BlockTreeVarCRHGriffin<F>;
+    type LeafHash = BlockTreeVarCRH<F>;
     // NOTE: the TwoToOneHash is not used when using NAryTrees
     type TwoToOneHash = TwoToOneCRHGadget<F>;
 }

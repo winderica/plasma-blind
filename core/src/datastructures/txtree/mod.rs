@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
-    crh::poseidon::TwoToOneCRH,
+    crh::poseidon::{CRH, TwoToOneCRH},
     merkle_tree::{Config, IdentityDigestConverter},
-    sponge::Absorb,
+    sponge::{Absorb, poseidon::PoseidonConfig},
 };
 use ark_ff::PrimeField;
 use nmerkle_trees::sparse::{NAryMerkleSparseTree, traits::NArySparseConfig};
@@ -37,12 +37,11 @@ pub struct SparseNAryTransactionTreeConfig<F> {
     _f: PhantomData<F>,
 }
 
-impl<F: Absorb + PrimeField + Absorbable>
-    NArySparseConfig<TransactionTreeConfig<F>>
+impl<F: Absorb + PrimeField + Absorbable> NArySparseConfig<TransactionTreeConfig<F>>
     for SparseNAryTransactionTreeConfig<F>
 {
-    type NToOneHashParams = GriffinParams<F>;
-    type NToOneHash = GriffinSponge<F>;
+    type NToOneHashParams = PoseidonConfig<F>;
+    type NToOneHash = CRH<F>;
     const HEIGHT: u64 = NARY_TRANSACTION_TREE_HEIGHT;
 }
 

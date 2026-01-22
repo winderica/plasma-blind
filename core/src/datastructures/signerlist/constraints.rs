@@ -1,5 +1,5 @@
 use ark_crypto_primitives::{
-    crh::poseidon::constraints::TwoToOneCRHGadget,
+    crh::poseidon::constraints::{CRHGadget, TwoToOneCRHGadget},
     merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
@@ -10,8 +10,7 @@ use sonobe_primitives::transcripts::{Absorbable, griffin::sponge::GriffinSpongeV
 use std::marker::PhantomData;
 
 use crate::primitives::{
-    crh::constraints::IdentityCRHGadget,
-    sparsemt::constraints::MerkleSparseTreeGadget,
+    crh::constraints::IdentityCRHGadget, sparsemt::constraints::MerkleSparseTreeGadget,
 };
 
 use super::{
@@ -34,7 +33,7 @@ impl<F: PrimeField + Absorb + Absorbable>
     > for SparseNArySignerTreeConfigGadget<F>
 {
     const HEIGHT: u64 = NARY_SIGNER_TREE_HEIGHT;
-    type NToOneHash = GriffinSpongeVar<F>;
+    type NToOneHash = CRHGadget<F>;
 }
 
 #[derive(Clone, Debug)]
@@ -50,9 +49,3 @@ impl<F: PrimeField + Absorb> ConfigGadget<SignerTreeConfig<F>, F> for SignerTree
     type LeafHash = IdentityCRHGadget<F>;
     type TwoToOneHash = TwoToOneCRHGadget<F>;
 }
-
-//impl<F: PrimeField + Absorb> SparseConfigGadget<SignerTreeConfig<F>, F>
-//    for SignerTreeConfigGadget<F>
-//{
-//    const HEIGHT: usize = SIGNER_TREE_HEIGHT;
-//}

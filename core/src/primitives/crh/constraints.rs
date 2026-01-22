@@ -109,7 +109,7 @@ pub struct UTXOVarCRH {}
 impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<UTXOCRH<F>, F> for UTXOVarCRH {
     type InputVar = UTXOVar<F>;
     type OutputVar = FpVar<F>;
-    type ParametersVar = GriffinParamsVar<F>;
+    type ParametersVar = CRHParametersVar<F>;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
@@ -123,7 +123,7 @@ impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<UTXOCRH<F>, F> for UTX
             input.salt.clone(),
             pk_point,
         ]);
-        GriffinSpongeVar::evaluate(parameters, &input)
+        CRHGadget::evaluate(parameters, &input)
     }
 }
 
@@ -186,10 +186,12 @@ impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<BlockTreeCRHGriffin<F>
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
         GriffinSpongeVar::evaluate(
             parameters,
-            &[input.tx_tree_root.clone(),
+            &[
+                input.tx_tree_root.clone(),
                 input.signer_tree_root.clone(),
                 input.nullifier_tree_root.clone(),
-                input.height.to_fp()?],
+                input.height.to_fp()?,
+            ],
         )
     }
 }

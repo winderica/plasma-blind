@@ -1,23 +1,21 @@
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
-    crh::poseidon::constraints::TwoToOneCRHGadget,
+    crh::poseidon::constraints::{CRHGadget, TwoToOneCRHGadget},
     merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
     sponge::Absorb,
 };
 use ark_ff::PrimeField;
 use ark_r1cs_std::fields::fp::FpVar;
 use nmerkle_trees::sparse::traits::NArySparseConfigGadget;
-use sonobe_primitives::transcripts::{Absorbable, griffin::sponge::GriffinSpongeVar};
+use sonobe_primitives::transcripts::Absorbable;
 
 use crate::primitives::{
     crh::constraints::IdentityCRHGadget, sparsemt::constraints::MerkleSparseTreeGadget,
 };
 
 use super::TransactionTreeConfig;
-use super::{
-    NARY_TRANSACTION_TREE_HEIGHT, SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY,
-};
+use super::{NARY_TRANSACTION_TREE_HEIGHT, SparseNAryTransactionTreeConfig};
 
 pub type TransactionTreeGadget<F> =
     MerkleSparseTreeGadget<TransactionTreeConfig<F>, F, TransactionTreeConfigGadget<F>>;
@@ -35,7 +33,7 @@ impl<F: PrimeField + Absorb + Absorbable>
     > for SparseNAryTransactionTreeConfigGadget<F>
 {
     const HEIGHT: u64 = NARY_TRANSACTION_TREE_HEIGHT;
-    type NToOneHash = GriffinSpongeVar<F>;
+    type NToOneHash = CRHGadget<F>;
 }
 
 #[derive(Clone, Debug)]

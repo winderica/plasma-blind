@@ -19,7 +19,8 @@ use sonobe_primitives::transcripts::{
     griffin::{GriffinParams, sponge::GriffinSponge},
 };
 use utils::{
-    initialize_blockcrh_config, initialize_blockcrh_config_griffin, initialize_publickeycrh_config, initialize_utxocrh_config_griffin,
+    initialize_blockcrh_config, initialize_blockcrh_config_griffin, initialize_publickeycrh_config,
+    initialize_utxocrh_config, initialize_utxocrh_config_griffin,
 };
 
 use crate::{
@@ -193,11 +194,11 @@ pub struct UTXOCRH<F> {
 impl<F: PrimeField + Absorb + Absorbable> CRHScheme for UTXOCRH<F> {
     type Input = UTXO<F>;
     type Output = F;
-    type Parameters = GriffinParams<F>;
+    type Parameters = PoseidonConfig<F>;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
         // WARNING: this config should be checked and not used in production as is
-        Ok(initialize_utxocrh_config_griffin())
+        Ok(initialize_utxocrh_config())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -211,7 +212,7 @@ impl<F: PrimeField + Absorb + Absorbable> CRHScheme for UTXOCRH<F> {
             utxo.salt,
             utxo.pk,
         ];
-        GriffinSponge::evaluate(parameters, input)
+        CRH::evaluate(parameters, input)
     }
 }
 
