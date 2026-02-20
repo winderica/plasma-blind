@@ -10,7 +10,7 @@ pub const NULLIFIER_TREE_HEIGHT: usize = 32;
 #[cfg(test)]
 pub mod tests {
 
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
     use ark_bn254::{Fr, G1Projective};
     use ark_crypto_primitives::crh::{CRHScheme, poseidon::CRH};
@@ -44,7 +44,7 @@ pub mod tests {
         datastructures::{
             TX_IO_SIZE,
             block::BlockMetadata,
-            blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
+            blocktree::{BLOCK_TREE_ARITY, NARY_BLOCK_TREE_HEIGHT, SparseNAryBlockTree},
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
             signerlist::{SIGNER_TREE_ARITY, SparseNArySignerTree},
             transparenttx::TransparentTransaction,
@@ -66,6 +66,10 @@ pub mod tests {
     #[test]
     fn test_validity_circuit() {
         let mut rng = test_rng();
+
+        println!(
+            "BLOCK_TREE_ARITY: {BLOCK_TREE_ARITY}, BLOCK_TREE_HEIGHT: {NARY_BLOCK_TREE_HEIGHT}"
+        );
 
         // initialize our plasma blind config
         // poseidon crh only for now, should be configurable in the future
@@ -259,10 +263,15 @@ pub mod tests {
         );
 
         let cs_ref = ConstraintSystem::new_ref();
+
+        let start = Instant::now();
         tx_validity_circuit
             .clone()
             .generate_constraints(cs_ref.clone())
             .unwrap();
+        let elapsed = start.elapsed();
+        println!("Synthesizing took: {:?}", elapsed);
+
         let (w, x) = (
             cs_ref.witness_assignment().unwrap(),
             cs_ref
@@ -298,6 +307,7 @@ pub mod tests {
         let hash = GriffinSponge::<Fr>::new_with_pp_hash(&hash_config, Default::default());
         let mut transcript = hash.separate_domain("transcript1".as_ref());
 
+        let start = Instant::now();
         let (rw, ru, cm_t, rho) = Nova::<Pedersen<G1Projective, true>>::prove(
             dk.to_pk(),
             &mut transcript,
@@ -308,6 +318,9 @@ pub mod tests {
             &mut rng,
         )
         .unwrap();
+        let elapsed = start.elapsed();
+        println!("Proving took: {:?}", elapsed);
+
         let (len_wtns, size) = (rw.w.len(), rw.w.serialized_size(Compress::Yes));
         println!("len wtns: {len_wtns}, compressed_size: {size}");
     }
