@@ -1,146 +1,185 @@
+use ark_r1cs_std::eq::EqGadget;
+use ark_r1cs_std::prelude::Boolean;
+use ark_std::cmp::Ordering;
+use plasmablind_core::primitives::crh::constraints::UTXOVarCRH;
+use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
+use std::marker::PhantomData;
+
 use ark_crypto_primitives::{
     crh::{CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget},
     sponge::Absorb,
 };
-use ark_ff::PrimeField;
-use ark_r1cs_std::{
-    alloc::{AllocVar, AllocationMode},
-    eq::EqGadget,
-    fields::fp::FpVar,
-    prelude::Boolean,
-};
-use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use ark_r1cs_std::alloc::AllocVar;
+use ark_std::rand::RngCore;
+use nmerkle_trees::sparse::NArySparsePath;
 use plasmablind_core::{
-    config::PlasmaBlindConfigVar,
-    datastructures::{signerlist::SIGNER_TREE_ARITY, txtree::TRANSACTION_TREE_ARITY},
-    primitives::{
-        accumulator::constraints::Accumulator,
-        crh::constraints::{BlockTreeVarCRHGriffin, UTXOVarCRH},
+    config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
+    datastructures::{
+        block::BlockMetadata,
+        blocktree::BLOCK_TREE_ARITY,
+        signerlist::{SignerTreeConfig, SparseNArySignerTreeConfig},
+        txtree::{SparseNAryTransactionTreeConfig, TransactionTreeConfig, TRANSACTION_TREE_ARITY},
+        utxo::UTXO,
     },
+    primitives::{accumulator::constraints::Accumulator, crh::constraints::BlockTreeVarCRHGriffin},
 };
-use sonobe_primitives::{algebra::ops::bits::ToBitsGadgetExt, transcripts::Absorbable};
-use std::{cmp::Ordering, marker::PhantomData};
+use sonobe_fs::FoldingSchemeDef;
+use sonobe_ivc::compilers::cyclefold::FoldingSchemeCycleFoldExt;
+use sonobe_primitives::{circuits::FCircuit, commitments::VectorCommitmentDef};
 
-use crate::circuits::external_inputs::UserAuxVar;
+use crate::circuits::{
+    balance_inputs::{BalanceAux, BalanceAuxVar},
+    balance_state::{BalanceState, BalanceStateVar},
+};
 
-mod balance_inputs;
-mod balance_state;
-mod circuit;
-mod client;
-mod external_inputs;
-
-// indicates which utxo will be processed by balance circuit
-pub type OpeningsMaskVar<F> = Vec<Boolean<F>>;
-
-pub struct UserCircuit<
-    F: PrimeField + Absorb + Absorbable,
+pub struct BalanceCircuit<
+    FS1: FoldingSchemeDef,
     H: TwoToOneCRHScheme,
-    T: TwoToOneCRHSchemeGadget<H, F>,
-    A: Accumulator<F, H, T>,
-    const N_TX_PER_FOLD_STEP: usize,
+    HG: TwoToOneCRHSchemeGadget<H, FS1::TranscriptField>,
+    A: Accumulator<FS1::TranscriptField, H, HG>,
 > {
-    _a: PhantomData<A>,
-    acc_pp: T::ParametersVar, // public parameters for the accumulator might not be poseidon
-    plasma_blind_config: PlasmaBlindConfigVar<F>,
+    pub config: PlasmaBlindConfig<FS1::TranscriptField>,
+    pub pp_hash: <FS1::VC as VectorCommitmentDef>::Scalar,
+    pub acc_pp: HG::ParametersVar, // public parameters for the accumulator might not be poseidon
+    pub _r: PhantomData<(H, A)>,
 }
 
 impl<
-        F: PrimeField + Absorb + Absorbable,
+        FS1: FoldingSchemeCycleFoldExt<2, 0, TranscriptField: Absorb>,
         H: TwoToOneCRHScheme,
-        T: TwoToOneCRHSchemeGadget<H, F>,
-        A: Accumulator<F, H, T>,
-        const N_TX_PER_FOLD_STEP: usize,
-    > UserCircuit<F, H, T, A, N_TX_PER_FOLD_STEP>
+        HG: TwoToOneCRHSchemeGadget<H, FS1::TranscriptField>,
+        A: Accumulator<FS1::TranscriptField, H, HG>,
+    > FCircuit for BalanceCircuit<FS1, H, HG, A>
 {
-    pub fn new(acc_pp: T::ParametersVar, plasma_blind_config: PlasmaBlindConfigVar<F>) -> Self {
-        Self {
-            _a: PhantomData,
-            acc_pp,
-            plasma_blind_config,
+    type Field = <FS1::VC as VectorCommitmentDef>::Scalar;
+    type State = BalanceState<FS1>;
+    type StateVar = BalanceStateVar<FS1>;
+    type ExternalInputs = BalanceAux<FS1>;
+    type ExternalOutputs = PhantomData<FS1>;
+
+    fn dummy_state(&self) -> Self::State {
+        BalanceState {
+            balance: FS1::TranscriptField::default(),
+            nonce: FS1::TranscriptField::default(),
+            pk: FS1::TranscriptField::default(),
+            acc: FS1::TranscriptField::default(),
+            block_hash: FS1::TranscriptField::default(),
+            block_number: FS1::TranscriptField::default(),
+            processed_tx_index: FS1::TranscriptField::default(),
         }
     }
-}
 
-impl<
-        F: PrimeField + Absorb + Absorbable,
-        H: TwoToOneCRHScheme,
-        T: TwoToOneCRHSchemeGadget<H, F>,
-        A: Accumulator<F, H, T>,
-        const N_TX_PER_FOLD_STEP: usize,
-    > UserCircuit<F, H, T, A, N_TX_PER_FOLD_STEP>
-{
-    pub fn update_balance(
+    fn dummy_external_inputs(&self) -> Self::ExternalInputs {
+        BalanceAux {
+            block: BlockMetadata::default(),
+            from: FS1::TranscriptField::default(),
+            utxo_tree_root: FS1::TranscriptField::default(),
+            tx_index: FS1::TranscriptField::default(),
+            shielded_tx_utxos: vec![UTXO::dummy()],
+            shielded_tx_utxos_proofs: vec![(
+                vec![FS1::TranscriptField::default()],
+                FS1::TranscriptField::default(),
+            )],
+            openings_mask: vec![bool::default()],
+            shielded_tx_inclusion_proof: NArySparsePath::<
+                TRANSACTION_TREE_ARITY,
+                TransactionTreeConfig<FS1::TranscriptField>,
+                SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
+            >::default(),
+            signer_pk_inclusion_proof: NArySparsePath::<
+                BLOCK_TREE_ARITY,
+                SignerTreeConfig<FS1::TranscriptField>,
+                SparseNArySignerTreeConfig<FS1::TranscriptField>,
+            >::default(),
+        }
+    }
+
+    fn generate_step_constraints(
+        // this method uses self, so that each FCircuit implementation (and different frontends)
+        // can hold a state if needed to store data to generate the constraints.
         &self,
-        cs: ConstraintSystemRef<F>,
-        z_i: Vec<FpVar<F>>,
-        aux: UserAuxVar<F>,
-    ) -> Result<Vec<FpVar<F>>, SynthesisError> {
-        let (balance, nonce, pk, acc, block_hash, block_number, processed_tx_index) = (
-            z_i[0].clone(),
-            z_i[1].clone(),
-            z_i[2].clone(),
-            z_i[3].clone(),
-            z_i[4].clone(),
-            z_i[5].clone(),
-            z_i[6].clone(),
-        );
+        cs: ark_relations::gr1cs::ConstraintSystemRef<Self::Field>,
+        i: ark_r1cs_std::fields::fp::FpVar<Self::Field>,
+        z_i: Self::StateVar,
+        external_inputs: Self::ExternalInputs, // inputs that are not part of the state
+    ) -> Result<(Self::StateVar, Self::ExternalOutputs), ark_relations::gr1cs::SynthesisError> {
+        let config_var = PlasmaBlindConfigVar::new_constant(cs.clone(), self.config.clone())?;
+
+        let BalanceStateVar {
+            balance,
+            nonce,
+            pk,
+            acc,
+            block_hash,
+            block_number,
+            processed_tx_index,
+        } = z_i;
+
+        let BalanceAuxVar {
+            block,
+            from,
+            utxo_tree_root,
+            tx_index,
+            shielded_tx_utxos,
+            shielded_tx_utxos_proofs,
+            openings_mask,
+            shielded_tx_inclusion_proof,
+            signer_pk_inclusion_proof,
+        } = BalanceAuxVar::new_witness(cs, || Ok(external_inputs))?;
 
         // compute block hash and update accumulator value
-        let next_block_hash = BlockTreeVarCRHGriffin::evaluate(
-            &self.plasma_blind_config.block_tree_leaf_config,
-            &aux.block,
-        )?;
+        let next_block_hash =
+            BlockTreeVarCRHGriffin::evaluate(&config_var.block_tree_leaf_config, &block)?;
         let next_acc = A::update(&self.acc_pp, &acc, &block_hash)?;
 
         // ensure the current processed block number is equal or greater than the previous block
-        let next_block_number = aux.block.height.to_fp()?;
+        let next_block_number = block.height.to_fp()?;
         (&next_block_number - block_number).to_n_bits_le(64)?;
 
         // ensure that the processed tx has greater tx index (when processing same block)
-        let next_tx_index = aux.tx_index;
+        let next_tx_index = tx_index;
         let is_same_block = next_block_hash.is_eq(&block_hash)?;
         let is_higher_tx_index =
             &next_tx_index.is_cmp(&processed_tx_index, Ordering::Greater, false)?;
         is_higher_tx_index.conditional_enforce_equal(&Boolean::Constant(true), &is_same_block)?;
 
         // check that shielded tx is in tx tree
-        aux.shielded_tx_inclusion_proof
+        shielded_tx_inclusion_proof
             .verify_membership(
                 &(),
-                &self.plasma_blind_config.tx_tree_n_to_one_config,
-                &aux.block.tx_tree_root,
-                &aux.utxo_tree_root,
+                &config_var.tx_tree_n_to_one_config,
+                &block.tx_tree_root,
+                &utxo_tree_root,
             )?
             .enforce_equal(&Boolean::constant(true))?;
 
         // check that the signer bit is 1 for the corresponding transaction (i.e. pk is included)
-        aux.signer_pk_inclusion_proof
+        signer_pk_inclusion_proof
             .verify_membership(
                 &(),
-                &self.plasma_blind_config.signer_tree_n_to_one_config,
-                &aux.block.signer_tree_root,
-                &aux.from,
+                &config_var.signer_tree_n_to_one_config,
+                &block.signer_tree_root,
+                &from,
             )?
             .enforce_equal(&Boolean::Constant(true))?;
 
         // validity of input utxos is already checked by the transaction validity circuit and the
         // aggregator, so we only need to process the output utxos?
         // note that the transaction validity circuit ensures that sum(inputs) == sum(outputs)
-        let is_sender = pk.is_eq(&aux.from)?;
+        let is_sender = pk.is_eq(&from)?;
         let next_nonce = nonce + &is_sender.clone().into();
         let mut next_balance = balance;
 
         // if the user is the sender, he should provide data for all the output utxos
         // if the user is not the sender, he should provide data for the output utxos sent to him
-        for ((is_opened, utxo), utxo_proof) in aux
-            .openings_mask
+        for ((is_opened, utxo), utxo_proof) in openings_mask
             .iter()
-            .zip(aux.shielded_tx_utxos)
-            .zip(aux.shielded_tx_utxos_proofs)
+            .zip(shielded_tx_utxos)
+            .zip(shielded_tx_utxos_proofs)
         {
-            let is_in_tree = self.plasma_blind_config.utxo_tree.is_at_index(
-                &aux.utxo_tree_root,
-                &UTXOVarCRH::evaluate(&self.plasma_blind_config.utxo_crh_config, &utxo)?,
+            let is_in_tree = config_var.utxo_tree.is_at_index(
+                &utxo_tree_root,
+                &UTXOVarCRH::evaluate(&config_var.utxo_crh_config, &utxo)?,
                 &utxo_proof.1,
                 &utxo_proof.0,
             )?;
@@ -154,35 +193,33 @@ impl<
             next_balance += utxo.amount.to_fp()? * &increase_balance.into();
             next_balance -= utxo.amount.to_fp()? * &decrease_balance.into();
         }
-        Ok(vec![
-            next_balance,
-            next_nonce,
-            pk,
-            next_acc,
-            next_block_hash,
-            next_block_number,
-            next_tx_index,
-        ])
+        Ok((
+            BalanceStateVar {
+                balance: next_balance,
+                nonce: next_nonce,
+                pk,
+                acc: next_acc,
+                block_hash: next_block_hash,
+                block_number: next_block_number,
+                processed_tx_index: next_tx_index,
+            },
+            PhantomData::<FS1>,
+        ))
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+
     use std::collections::BTreeMap;
 
     use ark_bn254::Fr;
     use ark_crypto_primitives::crh::{
-        poseidon::{
-            constraints::{CRHParametersVar, TwoToOneCRHGadget},
-            TwoToOneCRH, CRH,
-        },
+        poseidon::{constraints::CRHParametersVar, CRH},
         CRHScheme,
     };
     use ark_ff::{Field, UniformRand};
-    use ark_r1cs_std::{
-        alloc::{AllocVar, AllocationMode},
-        GR1CSVar,
-    };
+    use ark_r1cs_std::alloc::{AllocVar, AllocationMode};
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::test_rng;
     use plasmablind_core::{
@@ -191,14 +228,13 @@ mod tests {
             block::BlockMetadata,
             blocktree::BLOCK_TREE_ARITY,
             shieldedtx::{ShieldedTransaction, ShieldedTransactionConfig},
-            signerlist::SparseNArySignerTree,
+            signerlist::{SparseNArySignerTree, SIGNER_TREE_ARITY},
             transparenttx::TransparentTransaction,
-            txtree::SparseNAryTransactionTree,
+            txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY},
             utxo::UTXO,
             TX_IO_SIZE,
         },
         primitives::{
-            accumulator::constraints::PoseidonAccumulatorVar,
             crh::{
                 poseidon_canonical_config,
                 utils::{
@@ -210,13 +246,23 @@ mod tests {
             sparsemt::MerkleSparseTree,
         },
     };
+    use sonobe_primitives::commitments::pedersen::Pedersen;
 
-    use crate::circuits::external_inputs::UserAux;
+    use crate::circuits::{
+        balance_inputs::{BalanceAux, BalanceAuxVar},
+        balance_state::{BalanceState, BalanceStateVar},
+    };
 
-    use super::*;
+    use sonobe_fs::{nova::Nova, ova::CycleFoldOva};
+
+    use ark_bn254::G1Projective as C1;
+    use ark_grumpkin::Projective as C2;
 
     #[test]
-    pub fn test_user_circuit() {
+    pub fn test_balance_proving_step() {
+        type FS1 = Nova<Pedersen<C1, true>>;
+        type FS2 = CycleFoldOva<Pedersen<C2, true>>;
+
         let mut rng = test_rng();
         let pp = poseidon_canonical_config::<Fr>();
 
@@ -263,13 +309,9 @@ mod tests {
         let receiver_sk = Fr::rand(&mut rng);
         let receiver_pk = CRH::evaluate(&config.poseidon_config, vec![receiver_sk]).unwrap();
         let tx = TransparentTransaction {
-            inputs: [
-                UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
-                UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
-                UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
-                UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
-            ],
+            inputs: [UTXO::new(sender_pk, 10, Fr::rand(&mut rng)); TX_IO_SIZE],
             inputs_info: [Default::default(); TX_IO_SIZE],
+            // TODO: use also TX_IO_SIZE here, not sure how yet
             outputs: [
                 UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
                 UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
@@ -322,7 +364,7 @@ mod tests {
             .collect::<Vec<_>>();
         let shielded_tx_inclusion_proof = transaction_tree.generate_proof(1).unwrap();
         let signer_inclusion_proof = signer_tree.generate_proof(1).unwrap();
-        let sender_aux = UserAux {
+        let sender_aux = BalanceAux::<FS1> {
             block,
             from: sender_pk,
             utxo_tree_root: utxo_tree.root(),
@@ -336,7 +378,7 @@ mod tests {
 
         let cs = ConstraintSystem::new_ref();
         let sender_aux_var =
-            UserAuxVar::new_variable(cs.clone(), || Ok(sender_aux), AllocationMode::Witness)
+            BalanceAuxVar::new_variable(cs.clone(), || Ok(sender_aux), AllocationMode::Witness)
                 .unwrap();
 
         let cur_balance = Fr::from(47);
@@ -347,40 +389,18 @@ mod tests {
         let cur_block_num = Fr::from(0);
         let cur_tx_index = Fr::from(0);
 
-        let z_i = vec![
-            cur_balance,
-            cur_nonce,
+        let z_i = BalanceState::<FS1> {
+            balance: cur_balance,
+            nonce: cur_nonce,
             pk,
-            cur_acc,
-            cur_block_hash,
-            cur_block_num,
-            cur_tx_index,
-        ];
-        let z_i_var = Vec::new_variable(cs.clone(), || Ok(z_i), AllocationMode::Witness).unwrap();
+            acc: cur_acc,
+            block_hash: cur_block_hash,
+            block_number: cur_block_num,
+            processed_tx_index: cur_tx_index,
+        };
+        let z_i_var =
+            BalanceStateVar::new_variable(cs.clone(), || Ok(z_i), AllocationMode::Witness).unwrap();
 
         let pp_var = CRHParametersVar::new_constant(cs.clone(), &pp).unwrap();
-        let user_circuit = UserCircuit::<
-            Fr,
-            TwoToOneCRH<Fr>,
-            TwoToOneCRHGadget<Fr>,
-            PoseidonAccumulatorVar<Fr>,
-            1,
-        >::new(
-            pp_var.clone(),
-            PlasmaBlindConfigVar::new_constant(cs.clone(), config).unwrap(),
-        );
-
-        let new_z_i_var = user_circuit
-            .update_balance(cs.clone(), z_i_var, sender_aux_var)
-            .unwrap();
-        assert!(cs.is_satisfied().unwrap());
-        assert_eq!(new_z_i_var[0].value().unwrap(), cur_balance - Fr::from(10)); // balance should
-                                                                                 // decrease by 10
-        assert_eq!(new_z_i_var[1].value().unwrap(), cur_nonce + Fr::ONE); // nonce increased by 1
-        assert_eq!(new_z_i_var[2].value().unwrap(), pk); // pk hash is invariant
-        assert_ne!(new_z_i_var[3].value().unwrap(), cur_acc); // accumulator changed
-        assert_ne!(new_z_i_var[4].value().unwrap(), cur_block_hash); // block hash is new
-        assert_eq!(new_z_i_var[5].value().unwrap(), Fr::ONE); // block num is changed
-        assert!(new_z_i_var[6].value().unwrap() > cur_tx_index); // greater tx index
     }
 }
