@@ -26,7 +26,6 @@ use crate::circuits::external_inputs::UserAuxVar;
 mod balance_inputs;
 mod balance_state;
 mod circuit;
-mod client;
 mod external_inputs;
 
 // indicates which utxo will be processed by balance circuit

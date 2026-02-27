@@ -36,8 +36,6 @@ pub struct BalanceAux<FS1: FoldingSchemeDef<TranscriptField: Absorb>> {
     pub from: FS1::TranscriptField,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
     pub utxo_tree_root: FS1::TranscriptField,
-    // index of transaction within transaction tree
-    pub tx_index: FS1::TranscriptField,
     // output utxos only from shielded tx
     pub shielded_tx_utxos: Vec<UTXO<FS1::TranscriptField>>,
     // openings for utxos
@@ -75,8 +73,6 @@ pub struct BalanceAuxVar<FS1: FoldingSchemeDef<TranscriptField: Absorb>> {
     pub from: FpVar<FS1::TranscriptField>,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
     pub utxo_tree_root: FpVar<FS1::TranscriptField>,
-    // index of transaction within transaction tree
-    pub tx_index: FpVar<FS1::TranscriptField>,
     // output utxos only from shielded tx
     pub shielded_tx_utxos: Vec<UTXOVar<FS1::TranscriptField>>,
     // openings for utxos
@@ -121,7 +117,6 @@ impl<FS1: FoldingSchemeDef<TranscriptField: Absorb>> AllocVar<BalanceAux<FS1>, F
             BlockMetadataVar::new_variable(cs.clone(), || Ok(user_aux.block.clone()), mode)?;
         let from = FpVar::new_variable(cs.clone(), || Ok(user_aux.from), mode)?;
         let utxo_tree_root = FpVar::new_variable(cs.clone(), || Ok(user_aux.utxo_tree_root), mode)?;
-        let tx_index = FpVar::new_variable(cs.clone(), || Ok(user_aux.tx_index), mode)?;
         let shielded_tx_utxos = Vec::<UTXOVar<_>>::new_variable(
             cs.clone(),
             || Ok(user_aux.shielded_tx_utxos.clone()),
@@ -153,7 +148,6 @@ impl<FS1: FoldingSchemeDef<TranscriptField: Absorb>> AllocVar<BalanceAux<FS1>, F
             block,
             from,
             utxo_tree_root,
-            tx_index,
             shielded_tx_utxos,
             shielded_tx_utxos_proofs,
             openings_mask,

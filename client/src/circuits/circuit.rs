@@ -1,7 +1,13 @@
 use ark_r1cs_std::eq::EqGadget;
 use ark_r1cs_std::prelude::Boolean;
 use ark_std::cmp::Ordering;
-use plasmablind_core::primitives::crh::constraints::UTXOVarCRH;
+use plasmablind_core::{
+    datastructures::{
+        shieldedtx::UTXOTree, signerlist::SparseNArySignerTree, txtree::SparseNAryTransactionTree,
+        TX_IO_SIZE,
+    },
+    primitives::crh::constraints::UTXOVarCRH,
+};
 use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
 use std::marker::PhantomData;
 
@@ -10,17 +16,9 @@ use ark_crypto_primitives::{
     sponge::Absorb,
 };
 use ark_r1cs_std::alloc::AllocVar;
-use ark_std::rand::RngCore;
-use nmerkle_trees::sparse::NArySparsePath;
 use plasmablind_core::{
     config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
-    datastructures::{
-        block::BlockMetadata,
-        blocktree::BLOCK_TREE_ARITY,
-        signerlist::{SignerTreeConfig, SparseNArySignerTreeConfig},
-        txtree::{SparseNAryTransactionTreeConfig, TransactionTreeConfig, TRANSACTION_TREE_ARITY},
-        utxo::UTXO,
-    },
+    datastructures::{block::BlockMetadata, utxo::UTXO},
     primitives::{accumulator::constraints::Accumulator, crh::constraints::BlockTreeVarCRHGriffin},
 };
 use sonobe_fs::FoldingSchemeDef;
@@ -39,13 +37,12 @@ pub struct BalanceCircuit<
     A: Accumulator<FS1::TranscriptField, H, HG>,
 > {
     pub config: PlasmaBlindConfig<FS1::TranscriptField>,
-    pub pp_hash: <FS1::VC as VectorCommitmentDef>::Scalar,
     pub acc_pp: HG::ParametersVar, // public parameters for the accumulator might not be poseidon
     pub _r: PhantomData<(H, A)>,
 }
 
 impl<
-        FS1: FoldingSchemeCycleFoldExt<2, 0, TranscriptField: Absorb>,
+        FS1: FoldingSchemeCycleFoldExt<1, 1, TranscriptField: Absorb>,
         H: TwoToOneCRHScheme,
         HG: TwoToOneCRHSchemeGadget<H, FS1::TranscriptField>,
         A: Accumulator<FS1::TranscriptField, H, HG>,
@@ -61,7 +58,7 @@ impl<
         BalanceState {
             balance: FS1::TranscriptField::default(),
             nonce: FS1::TranscriptField::default(),
-            pk: FS1::TranscriptField::default(),
+            pk: FS1::TranscriptField::from(42),
             acc: FS1::TranscriptField::default(),
             block_hash: FS1::TranscriptField::default(),
             block_number: FS1::TranscriptField::default(),
@@ -70,27 +67,40 @@ impl<
     }
 
     fn dummy_external_inputs(&self) -> Self::ExternalInputs {
+        let dummy_tx_tree = SparseNAryTransactionTree::blank(
+            &self.config.tx_tree_leaf_config,
+            &self.config.tx_tree_n_to_one_config,
+            &FS1::TranscriptField::default(),
+        )
+        .unwrap();
+        let dummy_shielded_tx_inclusion_proof = dummy_tx_tree.generate_proof(1).unwrap();
+        let dummy_signer_tree = SparseNArySignerTree::blank(
+            &self.config.signer_tree_leaf_config,
+            &self.config.signer_tree_n_to_one_config,
+            &FS1::TranscriptField::default(),
+        )
+        .unwrap();
+        let dummy_signer_inclusion_proof = dummy_signer_tree.generate_proof(0).unwrap();
+        let block = BlockMetadata {
+            tx_tree_root: dummy_tx_tree.root,
+            signer_tree_root: dummy_signer_tree.root,
+            nullifier_tree_root: FS1::TranscriptField::default(),
+            height: 0,
+        };
+        let dummy_utxo_tree = UTXOTree::blank(&(), &self.config.poseidon_config);
+        let dummy_utxo_proof = dummy_utxo_tree.generate_membership_proof(0).unwrap();
         BalanceAux {
-            block: BlockMetadata::default(),
-            from: FS1::TranscriptField::default(),
+            block,
+            from: FS1::TranscriptField::from(1),
             utxo_tree_root: FS1::TranscriptField::default(),
-            tx_index: FS1::TranscriptField::default(),
             shielded_tx_utxos: vec![UTXO::dummy()],
-            shielded_tx_utxos_proofs: vec![(
-                vec![FS1::TranscriptField::default()],
-                FS1::TranscriptField::default(),
-            )],
-            openings_mask: vec![bool::default()],
-            shielded_tx_inclusion_proof: NArySparsePath::<
-                TRANSACTION_TREE_ARITY,
-                TransactionTreeConfig<FS1::TranscriptField>,
-                SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
-            >::default(),
-            signer_pk_inclusion_proof: NArySparsePath::<
-                BLOCK_TREE_ARITY,
-                SignerTreeConfig<FS1::TranscriptField>,
-                SparseNArySignerTreeConfig<FS1::TranscriptField>,
-            >::default(),
+            shielded_tx_utxos_proofs: vec![
+                (dummy_utxo_proof, FS1::TranscriptField::default());
+                TX_IO_SIZE
+            ],
+            openings_mask: vec![false; TX_IO_SIZE],
+            shielded_tx_inclusion_proof: dummy_shielded_tx_inclusion_proof,
+            signer_pk_inclusion_proof: dummy_signer_inclusion_proof,
         }
     }
 
@@ -119,7 +129,6 @@ impl<
             block,
             from,
             utxo_tree_root,
-            tx_index,
             shielded_tx_utxos,
             shielded_tx_utxos_proofs,
             openings_mask,
@@ -137,7 +146,7 @@ impl<
         (&next_block_number - block_number).to_n_bits_le(64)?;
 
         // ensure that the processed tx has greater tx index (when processing same block)
-        let next_tx_index = tx_index;
+        let next_tx_index = shielded_tx_inclusion_proof.index.clone();
         let is_same_block = next_block_hash.is_eq(&block_hash)?;
         let is_higher_tx_index =
             &next_tx_index.is_cmp(&processed_tx_index, Ordering::Greater, false)?;
@@ -211,7 +220,7 @@ impl<
 #[cfg(test)]
 pub mod tests {
 
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::Arc};
 
     use ark_bn254::Fr;
     use ark_crypto_primitives::crh::{
@@ -235,6 +244,7 @@ pub mod tests {
             TX_IO_SIZE,
         },
         primitives::{
+            accumulator::constraints::PoseidonAccumulatorVar,
             crh::{
                 poseidon_canonical_config,
                 utils::{
@@ -246,11 +256,16 @@ pub mod tests {
             sparsemt::MerkleSparseTree,
         },
     };
-    use sonobe_primitives::commitments::pedersen::Pedersen;
+    use sonobe_ivc::{compilers::cyclefold::CycleFoldBasedIVC, IVCStatefulProver, IVC};
+    use sonobe_primitives::{
+        commitments::pedersen::Pedersen,
+        transcripts::griffin::{sponge::GriffinSponge, GriffinParams},
+    };
 
     use crate::circuits::{
         balance_inputs::{BalanceAux, BalanceAuxVar},
         balance_state::{BalanceState, BalanceStateVar},
+        circuit::BalanceCircuit,
     };
 
     use sonobe_fs::{nova::Nova, ova::CycleFoldOva};
@@ -262,6 +277,7 @@ pub mod tests {
     pub fn test_balance_proving_step() {
         type FS1 = Nova<Pedersen<C1, true>>;
         type FS2 = CycleFoldOva<Pedersen<C2, true>>;
+        type T = GriffinSponge<Fr>;
 
         let mut rng = test_rng();
         let pp = poseidon_canonical_config::<Fr>();
@@ -368,7 +384,6 @@ pub mod tests {
             block,
             from: sender_pk,
             utxo_tree_root: utxo_tree.root(),
-            tx_index: Fr::ONE,
             shielded_tx_utxos: tx.outputs.to_vec(), // only outputs are processed
             shielded_tx_utxos_proofs,
             openings_mask: vec![true; 4],
@@ -402,5 +417,23 @@ pub mod tests {
             BalanceStateVar::new_variable(cs.clone(), || Ok(z_i), AllocationMode::Witness).unwrap();
 
         let pp_var = CRHParametersVar::new_constant(cs.clone(), &pp).unwrap();
+
+        let circuit = BalanceCircuit::<FS1, _, _, PoseidonAccumulatorVar<Fr>> {
+            config,
+            acc_pp: pp_var,
+            _r: std::marker::PhantomData,
+        };
+
+        let mut rng1 = test_rng();
+        let hash_config = Arc::new(GriffinParams::new(16, 5, 9));
+        let pp = CycleFoldBasedIVC::<FS1, FS2, T>::preprocess(
+            (1 << 19, (2048, 2048), hash_config.clone()),
+            &mut rng1,
+        )
+        .unwrap();
+        let (pk, vk) = CycleFoldBasedIVC::<FS1, FS2, T>::generate_keys(pp, &circuit).unwrap();
+
+        // let initial_state =
+        // IVCStatefulProver::new(&pk, &circuit, &initial_state);
     }
 }
