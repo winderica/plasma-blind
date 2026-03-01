@@ -227,7 +227,7 @@ pub mod tests {
         poseidon::{constraints::CRHParametersVar, CRH},
         CRHScheme,
     };
-    use ark_ff::{Field, UniformRand};
+    use ark_ff::{Field, UniformRand, Zero};
     use ark_r1cs_std::alloc::{AllocVar, AllocationMode};
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::test_rng;
@@ -413,8 +413,8 @@ pub mod tests {
             block_number: cur_block_num,
             processed_tx_index: cur_tx_index,
         };
-        let z_i_var =
-            BalanceStateVar::new_variable(cs.clone(), || Ok(z_i), AllocationMode::Witness).unwrap();
+        //let z_i_var =
+        //    BalanceStateVar::new_variable(cs.clone(), || Ok(z_i), AllocationMode::Witness).unwrap();
 
         let pp_var = CRHParametersVar::new_constant(cs.clone(), &pp).unwrap();
 
@@ -433,7 +433,8 @@ pub mod tests {
         .unwrap();
         let (pk, vk) = CycleFoldBasedIVC::<FS1, FS2, T>::generate_keys(pp, &circuit).unwrap();
 
-        // let initial_state =
-        // IVCStatefulProver::new(&pk, &circuit, &initial_state);
+        let ivc_client =
+            IVCStatefulProver::<_, CycleFoldBasedIVC<FS1, FS2, T>>::new(&pk, &circuit, z_i)
+                .unwrap();
     }
 }
