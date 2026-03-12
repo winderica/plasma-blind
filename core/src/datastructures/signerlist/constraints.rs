@@ -10,7 +10,7 @@ use sonobe_primitives::transcripts::{Absorbable, griffin::sponge::GriffinSpongeV
 use std::marker::PhantomData;
 
 use crate::primitives::{
-    crh::constraints::IdentityCRHGadget,
+    crh::{constraints::{IdentityCRHGadget, NTo1CRHVar}, utils::Init},
     sparsemt::constraints::MerkleSparseTreeGadget,
 };
 
@@ -18,37 +18,37 @@ use super::{
     NARY_SIGNER_TREE_HEIGHT, SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig,
 };
 
-pub type SignerTreeGadget<F> =
-    MerkleSparseTreeGadget<SignerTreeConfig<F>, F, SignerTreeConfigGadget<F>>;
+pub type SignerTreeGadget<Cfg> =
+    MerkleSparseTreeGadget<SignerTreeConfig<Cfg>, <Cfg as Init>::F, SignerTreeConfigGadget<Cfg>>;
 
-pub struct SparseNArySignerTreeConfigGadget<F: Absorb + PrimeField> {
-    _f: PhantomData<F>,
+pub struct SparseNArySignerTreeConfigGadget<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb + Absorbable>
+impl<Cfg: Init>
     NArySparseConfigGadget<
-        SignerTreeConfig<F>,
-        SignerTreeConfigGadget<F>,
-        F,
-        SparseNArySignerTreeConfig<F>,
-    > for SparseNArySignerTreeConfigGadget<F>
+        SignerTreeConfig<Cfg>,
+        SignerTreeConfigGadget<Cfg>,
+        <Cfg as Init>::F,
+        SparseNArySignerTreeConfig<Cfg>,
+    > for SparseNArySignerTreeConfigGadget<Cfg>
 {
     const HEIGHT: u64 = NARY_SIGNER_TREE_HEIGHT;
-    type NToOneHash = GriffinSpongeVar<F>;
+    type NToOneHash = Cfg::HGadget;
 }
 
 #[derive(Clone, Debug)]
-pub struct SignerTreeConfigGadget<F> {
-    _f: PhantomData<F>,
+pub struct SignerTreeConfigGadget<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> ConfigGadget<SignerTreeConfig<F>, F> for SignerTreeConfigGadget<F> {
-    type Leaf = FpVar<F>;
-    type LeafDigest = FpVar<F>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
-    type InnerDigest = FpVar<F>;
-    type LeafHash = IdentityCRHGadget<F>;
-    type TwoToOneHash = TwoToOneCRHGadget<F>;
+impl<Cfg: Init> ConfigGadget<SignerTreeConfig<Cfg>, <Cfg as Init>::F> for SignerTreeConfigGadget<Cfg> {
+    type Leaf = FpVar<Cfg::F>;
+    type LeafDigest = FpVar<Cfg::F>;
+    type LeafInnerConverter = IdentityDigestConverter<FpVar<Cfg::F>>;
+    type InnerDigest = FpVar<Cfg::F>;
+    type LeafHash = IdentityCRHGadget<Cfg::F>;
+    type TwoToOneHash = NTo1CRHVar<Cfg, 2>;
 }
 
 //impl<F: PrimeField + Absorb> SparseConfigGadget<SignerTreeConfig<F>, F>

@@ -11,28 +11,26 @@ use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
 
 use crate::{
     datastructures::keypair::constraints::PublicKeyVar,
-    primitives::crh::constraints::PublicKeyVarCRH,
+    primitives::crh::{constraints::{NTo1CRHVar, PublicKeyVarCRH}, utils::Init},
 };
 
 use super::PublicKeyTreeConfig;
 
 pub struct PublicKeyTreeConfigGadget<
+    Cfg,
     C: CurveGroup<BaseField: PrimeField + Absorb>,
     CVar: CurveVar<C, C::BaseField>,
-    P: Config,
 > {
-    _p: PhantomData<P>,
-    _c: PhantomData<C>,
-    _c1: PhantomData<CVar>,
+    _c: PhantomData<(Cfg, C, CVar)>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>, P: Config>
-    ConfigGadget<PublicKeyTreeConfig<C>, C::BaseField> for PublicKeyTreeConfigGadget<C, CVar, P>
+impl<Cfg: Init, C: CurveGroup<BaseField = Cfg::F>, CVar: CurveVar<C, C::BaseField>>
+    ConfigGadget<PublicKeyTreeConfig<Cfg, C>, C::BaseField> for PublicKeyTreeConfigGadget<Cfg, C, CVar>
 {
     type Leaf = PublicKeyVar<C, CVar>;
     type LeafDigest = FpVar<C::BaseField>;
     type LeafInnerConverter = IdentityDigestConverter<FpVar<C::BaseField>>;
     type InnerDigest = FpVar<C::BaseField>;
-    type LeafHash = PublicKeyVarCRH<C, CVar>;
-    type TwoToOneHash = TwoToOneCRHGadget<C::BaseField>;
+    type LeafHash = PublicKeyVarCRH<Cfg, C, CVar>;
+    type TwoToOneHash = NTo1CRHVar<Cfg, 2>;
 }

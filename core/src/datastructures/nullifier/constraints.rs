@@ -1,36 +1,46 @@
-use sonobe_primitives::transcripts::Absorbable;
-use sonobe_primitives::transcripts::griffin::constraints::crh::GriffinParamsVar;
-use sonobe_primitives::transcripts::griffin::sponge::GriffinSpongeVar;
 use std::marker::PhantomData;
 
-use ark_crypto_primitives::crh::CRHSchemeGadget;
-use ark_crypto_primitives::crh::poseidon::constraints::TwoToOneCRHGadget;
-use ark_crypto_primitives::merkle_tree::IdentityDigestConverter;
-use ark_crypto_primitives::merkle_tree::constraints::ConfigGadget;
-use ark_crypto_primitives::sponge::Absorb;
+use ark_crypto_primitives::{
+    crh::{CRHSchemeGadget, poseidon::constraints::TwoToOneCRHGadget},
+    merkle_tree::{IdentityDigestConverter, constraints::ConfigGadget},
+    sponge::Absorb,
+};
 use ark_ff::PrimeField;
-use ark_r1cs_std::prelude::{Boolean, ToBitsGadget};
-use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
+use ark_r1cs_std::{
+    alloc::AllocVar,
+    fields::fp::FpVar,
+    prelude::{Boolean, ToBitsGadget},
+};
 use ark_relations::gr1cs::SynthesisError;
+use sonobe_primitives::transcripts::{
+    Absorbable,
+    griffin::{constraints::crh::GriffinParamsVar, sponge::GriffinSpongeVar},
+};
 
 use super::Nullifier;
-use crate::datastructures::nullifier::NullifierTreeConfig;
-use crate::datastructures::utxo::constraints::UTXOInfoVar;
-use crate::primitives::crh::constraints::IntervalCRHGadget;
-use crate::primitives::sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget};
+use crate::{
+    datastructures::{nullifier::NullifierTreeConfig, utxo::constraints::UTXOInfoVar},
+    primitives::{
+        crh::{
+            constraints::{IntervalCRHGadget, NTo1CRHVar},
+            utils::Init,
+        },
+        sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
+    },
+};
 
 #[derive(Clone, Debug)]
 pub struct NullifierVar<F: PrimeField> {
     pub value: FpVar<F>,
 }
 
-impl<F: PrimeField + Absorb + Absorbable> NullifierVar<F> {
-    pub fn new(
-        cfg: &GriffinParamsVar<F>,
+impl<F: PrimeField + Absorb> NullifierVar<F> {
+    pub fn new<Cfg: Init<F = F>>(
+        cfg: &Cfg::Var,
         sk: &FpVar<F>,
         utxo_info: &UTXOInfoVar<F>,
     ) -> Result<Self, SynthesisError> {
-        let digest = GriffinSpongeVar::evaluate(
+        let digest = Cfg::HGadget::evaluate(
             cfg,
             &[
                 sk.clone(),
@@ -61,27 +71,28 @@ impl<F: PrimeField> AllocVar<Nullifier<F>, F> for NullifierVar<F> {
     }
 }
 
-pub type NullifierTreeGadgeet<F> =
-    MerkleSparseTreeGadget<NullifierTreeConfig<F>, F, NullifierTreeConfigGadget<F>>;
+pub type NullifierTreeGadget<Cfg> = MerkleSparseTreeGadget<
+    NullifierTreeConfig<Cfg>,
+    <Cfg as Init>::F,
+    NullifierTreeConfigGadget<Cfg>,
+>;
 
 #[derive(Clone, Debug)]
-pub struct NullifierTreeConfigGadget<F: PrimeField> {
-    _f: PhantomData<F>,
+pub struct NullifierTreeConfigGadget<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> ConfigGadget<NullifierTreeConfig<F>, F>
-    for NullifierTreeConfigGadget<F>
-{
-    type Leaf = (FpVar<F>, FpVar<F>);
-    type LeafDigest = FpVar<F>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
-    type InnerDigest = FpVar<F>;
-    type LeafHash = IntervalCRHGadget<F>;
-    type TwoToOneHash = TwoToOneCRHGadget<F>;
+impl<Cfg: Init> ConfigGadget<NullifierTreeConfig<Cfg>, Cfg::F> for NullifierTreeConfigGadget<Cfg> {
+    type Leaf = (FpVar<Cfg::F>, FpVar<Cfg::F>);
+    type LeafDigest = FpVar<Cfg::F>;
+    type LeafInnerConverter = IdentityDigestConverter<FpVar<Cfg::F>>;
+    type InnerDigest = FpVar<Cfg::F>;
+    type LeafHash = IntervalCRHGadget<Cfg>;
+    type TwoToOneHash = NTo1CRHVar<Cfg, 2>;
 }
 
-impl<F: PrimeField + Absorb> SparseConfigGadget<NullifierTreeConfig<F>, F>
-    for NullifierTreeConfigGadget<F>
+impl<Cfg: Init> SparseConfigGadget<NullifierTreeConfig<Cfg>, Cfg::F>
+    for NullifierTreeConfigGadget<Cfg>
 {
     const HEIGHT: usize = 32;
 }

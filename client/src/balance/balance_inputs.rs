@@ -1,59 +1,56 @@
-use crate::circuits::OpeningsMaskVar;
-use nmerkle_trees::sparse::NArySparsePath;
-use plasmablind_core::datastructures::{
-    block::BlockMetadata,
-    blocktree::BLOCK_TREE_ARITY,
-    signerlist::{SignerTreeConfig, SparseNArySignerTreeConfig},
-    txtree::{SparseNAryTransactionTreeConfig, TransactionTreeConfig, TRANSACTION_TREE_ARITY},
-    utxo::UTXO,
-};
+use std::borrow::Borrow;
 
 use ark_crypto_primitives::sponge::Absorb;
-
 use ark_r1cs_std::{
     alloc::{AllocVar, AllocationMode},
     fields::fp::FpVar,
 };
 use ark_relations::gr1cs::{Namespace, SynthesisError};
-use nmerkle_trees::sparse::constraints::NArySparsePathVar;
-use plasmablind_core::datastructures::{
-    block::constraints::BlockMetadataVar,
-    signerlist::{
-        constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
-        SIGNER_TREE_ARITY,
+use nmerkle_trees::sparse::{constraints::NArySparsePathVar, NArySparsePath};
+use plasmablind_core::{
+    datastructures::{
+        block::{constraints::BlockMetadataVar, BlockMetadata},
+        blocktree::BLOCK_TREE_ARITY,
+        signerlist::{
+            constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
+            SignerTreeConfig, SparseNArySignerTreeConfig, SIGNER_TREE_ARITY,
+        },
+        txtree::{
+            constraints::{SparseNAryTransactionTreeConfigGadget, TransactionTreeConfigGadget},
+            SparseNAryTransactionTreeConfig, TransactionTreeConfig, TRANSACTION_TREE_ARITY,
+        },
+        utxo::{constraints::UTXOVar, UTXO},
     },
-    txtree::constraints::{SparseNAryTransactionTreeConfigGadget, TransactionTreeConfigGadget},
-    utxo::constraints::UTXOVar,
+    primitives::crh::utils::Init,
 };
 use sonobe_fs::FoldingSchemeDef;
-use std::borrow::Borrow;
+
+use crate::balance::OpeningsMaskVar;
 
 // indicates which utxo will be processed by balance circuit
 pub type OpeningsMask = Vec<bool>;
 
-pub struct BalanceAux<FS1: FoldingSchemeDef<TranscriptField: Absorb>> {
-    pub block: BlockMetadata<FS1::TranscriptField>,
-    pub from: FS1::TranscriptField,
+#[derive(Clone)]
+pub struct BalanceAux<Cfg: Init> {
+    pub block: BlockMetadata<Cfg::F>,
+    pub from: Cfg::F,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
-    pub utxo_tree_root: FS1::TranscriptField,
+    pub utxo_tree_root: Cfg::F,
     // output utxos only from shielded tx
-    pub shielded_tx_utxos: Vec<UTXO<FS1::TranscriptField>>,
+    pub shielded_tx_utxos: Vec<UTXO<Cfg::F>>,
     // openings for utxos
-    pub shielded_tx_utxos_proofs: Vec<(Vec<FS1::TranscriptField>, FS1::TranscriptField)>,
+    pub shielded_tx_utxos_proofs: Vec<(Vec<Cfg::F>, Cfg::F)>,
     // openings mask - indicates if utxo should be opened. should be filled with true when user is sender.
     pub openings_mask: Vec<bool>,
     // inclusion proof showing committed_tx was included in tx tree
     pub shielded_tx_inclusion_proof: NArySparsePath<
         TRANSACTION_TREE_ARITY,
-        TransactionTreeConfig<FS1::TranscriptField>,
-        SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
+        TransactionTreeConfig<Cfg>,
+        SparseNAryTransactionTreeConfig<Cfg>,
     >,
     // inclusion proof showing committed_tx was signed
-    pub signer_pk_inclusion_proof: NArySparsePath<
-        BLOCK_TREE_ARITY,
-        SignerTreeConfig<FS1::TranscriptField>,
-        SparseNArySignerTreeConfig<FS1::TranscriptField>,
-    >,
+    pub signer_pk_inclusion_proof:
+        NArySparsePath<BLOCK_TREE_ARITY, SignerTreeConfig<Cfg>, SparseNArySignerTreeConfig<Cfg>>,
 }
 
 // Process transaction-wise. For each tx:
@@ -68,45 +65,40 @@ pub struct BalanceAux<FS1: FoldingSchemeDef<TranscriptField: Absorb>> {
 //      - if user is receiver and utxo is valid, increase balance (ok)
 //      - if user is sender and utxo is valid, decrease balance (ok)
 // - accumulate block hash
-pub struct BalanceAuxVar<FS1: FoldingSchemeDef<TranscriptField: Absorb>> {
-    pub block: BlockMetadataVar<FS1::TranscriptField>,
-    pub from: FpVar<FS1::TranscriptField>,
+pub struct BalanceAuxVar<Cfg: Init> {
+    pub block: BlockMetadataVar<Cfg::F>,
+    pub from: FpVar<Cfg::F>,
     // shielded tx is the root of the shielded tx tree along its index in the transaction tree which was built by the aggregator
-    pub utxo_tree_root: FpVar<FS1::TranscriptField>,
+    pub utxo_tree_root: FpVar<Cfg::F>,
     // output utxos only from shielded tx
-    pub shielded_tx_utxos: Vec<UTXOVar<FS1::TranscriptField>>,
+    pub shielded_tx_utxos: Vec<UTXOVar<Cfg::F>>,
     // openings for utxos
-    pub shielded_tx_utxos_proofs: Vec<(
-        Vec<FpVar<FS1::TranscriptField>>,
-        FpVar<FS1::TranscriptField>,
-    )>,
+    pub shielded_tx_utxos_proofs: Vec<(Vec<FpVar<Cfg::F>>, FpVar<Cfg::F>)>,
     // openings mask - indicates if utxo should be opened. should be filled with true when user is sender.
-    pub openings_mask: OpeningsMaskVar<FS1::TranscriptField>,
+    pub openings_mask: OpeningsMaskVar<Cfg::F>,
     // inclusion proof showing committed_tx was included in tx tree
     pub shielded_tx_inclusion_proof: NArySparsePathVar<
         TRANSACTION_TREE_ARITY,
-        TransactionTreeConfig<FS1::TranscriptField>,
-        TransactionTreeConfigGadget<FS1::TranscriptField>,
-        FS1::TranscriptField,
-        SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
-        SparseNAryTransactionTreeConfigGadget<FS1::TranscriptField>,
+        TransactionTreeConfig<Cfg>,
+        TransactionTreeConfigGadget<Cfg>,
+        Cfg::F,
+        SparseNAryTransactionTreeConfig<Cfg>,
+        SparseNAryTransactionTreeConfigGadget<Cfg>,
     >,
     // inclusion proof showing committed_tx was signed
     pub signer_pk_inclusion_proof: NArySparsePathVar<
         SIGNER_TREE_ARITY,
-        SignerTreeConfig<FS1::TranscriptField>,
-        SignerTreeConfigGadget<FS1::TranscriptField>,
-        FS1::TranscriptField,
-        SparseNArySignerTreeConfig<FS1::TranscriptField>,
-        SparseNArySignerTreeConfigGadget<FS1::TranscriptField>,
+        SignerTreeConfig<Cfg>,
+        SignerTreeConfigGadget<Cfg>,
+        Cfg::F,
+        SparseNArySignerTreeConfig<Cfg>,
+        SparseNArySignerTreeConfigGadget<Cfg>,
     >,
 }
 
-impl<FS1: FoldingSchemeDef<TranscriptField: Absorb>> AllocVar<BalanceAux<FS1>, FS1::TranscriptField>
-    for BalanceAuxVar<FS1>
-{
-    fn new_variable<T: Borrow<BalanceAux<FS1>>>(
-        cs: impl Into<Namespace<FS1::TranscriptField>>,
+impl<Cfg: Init> AllocVar<BalanceAux<Cfg>, Cfg::F> for BalanceAuxVar<Cfg> {
+    fn new_variable<T: Borrow<BalanceAux<Cfg>>>(
+        cs: impl Into<Namespace<Cfg::F>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: AllocationMode,
     ) -> Result<Self, SynthesisError> {

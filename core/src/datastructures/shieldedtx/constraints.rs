@@ -12,7 +12,10 @@ use super::{SHIELDED_TX_TREE_HEIGHT, ShieldedTransaction, ShieldedTransactionCon
 use crate::{
     datastructures::nullifier::constraints::NullifierVar,
     primitives::{
-        crh::constraints::IdentityCRHGadget,
+        crh::{
+            constraints::{IdentityCRHGadget, NTo1CRHVar},
+            utils::Init,
+        },
         sparsemt::constraints::{MerkleSparseTreeGadget, SparseConfigGadget},
     },
 };
@@ -23,9 +26,7 @@ pub struct ShieldedTransactionVar<F: PrimeField> {
     pub output_utxo_commitments: Vec<FpVar<F>>,
 }
 
-impl<F: PrimeField> AllocVar<ShieldedTransaction<F>, F>
-    for ShieldedTransactionVar<F>
-{
+impl<F: PrimeField> AllocVar<ShieldedTransaction<F>, F> for ShieldedTransactionVar<F> {
     fn new_variable<T: std::borrow::Borrow<ShieldedTransaction<F>>>(
         cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
         f: impl FnOnce() -> Result<T, ark_relations::gr1cs::SynthesisError>,
@@ -45,30 +46,30 @@ impl<F: PrimeField> AllocVar<ShieldedTransaction<F>, F>
     }
 }
 
-pub type UTXOTreeGadget<F> = MerkleSparseTreeGadget<
-        ShieldedTransactionConfig<F>,
-        F,
-        ShieldedTransactionConfigGadget<F>,
-    >;
+pub type UTXOTreeGadget<Cfg> = MerkleSparseTreeGadget<
+    ShieldedTransactionConfig<Cfg>,
+    <Cfg as Init>::F,
+    ShieldedTransactionConfigGadget<Cfg>,
+>;
 
 #[derive(Clone, Debug)]
-pub struct ShieldedTransactionConfigGadget<F> {
-    _f: PhantomData<F>,
+pub struct ShieldedTransactionConfigGadget<Cfg> {
+    _cfg: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> ConfigGadget<ShieldedTransactionConfig<F>, F>
-    for ShieldedTransactionConfigGadget<F>
+impl<Cfg: Init> ConfigGadget<ShieldedTransactionConfig<Cfg>, Cfg::F>
+    for ShieldedTransactionConfigGadget<Cfg>
 {
-    type Leaf = FpVar<F>;
-    type LeafDigest = FpVar<F>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
-    type InnerDigest = FpVar<F>;
-    type LeafHash = IdentityCRHGadget<F>;
-    type TwoToOneHash = TwoToOneCRHGadget<F>;
+    type Leaf = FpVar<Cfg::F>;
+    type LeafDigest = FpVar<Cfg::F>;
+    type LeafInnerConverter = IdentityDigestConverter<FpVar<Cfg::F>>;
+    type InnerDigest = FpVar<Cfg::F>;
+    type LeafHash = IdentityCRHGadget<Cfg::F>;
+    type TwoToOneHash = NTo1CRHVar<Cfg, 2>;
 }
 
-impl<F: PrimeField + Absorb> SparseConfigGadget<ShieldedTransactionConfig<F>, F>
-    for ShieldedTransactionConfigGadget<F>
+impl<Cfg: Init> SparseConfigGadget<ShieldedTransactionConfig<Cfg>, Cfg::F>
+    for ShieldedTransactionConfigGadget<Cfg>
 {
     const HEIGHT: usize = SHIELDED_TX_TREE_HEIGHT;
 }

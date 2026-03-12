@@ -3,12 +3,6 @@ name = "client"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = ["console_error_panic_hook"]
-
 [dependencies]
 wasm-bindgen = "0.2.84"
 ark-ec = { workspace = true }
@@ -34,3 +28,8 @@ wasm-bindgen-test = "0.3.34"
 web-time = "1.1.0"
 js-sys = "0.3.77"
 ark-serialize = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "client_bench"
+harness = false

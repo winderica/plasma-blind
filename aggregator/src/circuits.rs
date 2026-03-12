@@ -13,26 +13,22 @@ use ark_relations::gr1cs::{
 use ark_std::{borrow::Borrow, fmt::Debug, marker::PhantomData, rand::RngCore};
 use nmerkle_trees::sparse::{NArySparsePath, constraints::NArySparsePathVar};
 use num_bigint::BigUint;
-use plasmablind_core::NULLIFIER_TREE_HEIGHT;
-use plasmablind_core::datastructures::{
-    shieldedtx::constraints::UTXOTreeGadget,
-    signerlist::constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
-    txtree::{TRANSACTION_TREE_ARITY, TransactionTreeConfig},
-};
 use plasmablind_core::{
-    config::PlasmaBlindConfig, datastructures::nullifier::constraints::NullifierTreeGadgeet,
-};
-use plasmablind_core::{
-    config::PlasmaBlindConfigVar,
+    NULLIFIER_TREE_HEIGHT,
+    config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
     datastructures::{
-        TX_IO_SIZE,
-        shieldedtx::{ShieldedTransaction, constraints::ShieldedTransactionVar},
-        signerlist::{SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig},
-        txtree::{
-            SparseNAryTransactionTreeConfig,
+        TX_IO_SIZE, nullifier::constraints::NullifierTreeGadget, shieldedtx::{
+            ShieldedTransaction,
+            constraints::{ShieldedTransactionVar, UTXOTreeGadget},
+        }, signerlist::{
+            SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig,
+            constraints::{SignerTreeConfigGadget, SparseNArySignerTreeConfigGadget},
+        }, txtree::{
+            SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY, TransactionTreeConfig,
             constraints::{SparseNAryTransactionTreeConfigGadget, TransactionTreeConfigGadget},
-        },
+        }
     },
+    primitives::crh::utils::Init,
 };
 use sonobe_fs::{
     DeciderKey, FoldingInstance, FoldingInstanceVar, FoldingSchemeDef, FoldingSchemeGadgetDef,
@@ -265,6 +261,7 @@ impl<
 pub struct AggregatorCircuitExternalInputs<
     FS1: FoldingSchemeDef<TranscriptField: Absorb>,
     FS2: FoldingSchemeDef,
+    Cfg: Init<F = FS1::TranscriptField>,
     R: RngCore,
 > {
     pub Y: FS1::RW,
@@ -282,8 +279,8 @@ pub struct AggregatorCircuitExternalInputs<
 
     pub tx_tree_inclusion_proof: NArySparsePath<
         TRANSACTION_TREE_ARITY,
-        TransactionTreeConfig<FS1::TranscriptField>,
-        SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
+        TransactionTreeConfig<Cfg>,
+        SparseNAryTransactionTreeConfig<Cfg>,
     >,
     pub next_tx_index: usize,
 
@@ -291,11 +288,8 @@ pub struct AggregatorCircuitExternalInputs<
     pub nullifier_tree_insertion_proofs: [Vec<FS1::TranscriptField>; TX_IO_SIZE],
     pub nullifier_tree_replacement_positions: [usize; TX_IO_SIZE],
     pub nullifier_tree_insertion_positions: [usize; TX_IO_SIZE],
-    pub signer_tree_inclusion_proof: NArySparsePath<
-        SIGNER_TREE_ARITY,
-        SignerTreeConfig<FS1::TranscriptField>,
-        SparseNArySignerTreeConfig<FS1::TranscriptField>,
-    >,
+    pub signer_tree_inclusion_proof:
+        NArySparsePath<SIGNER_TREE_ARITY, SignerTreeConfig<Cfg>, SparseNArySignerTreeConfig<Cfg>>,
 
     pub rng: R,
 }
@@ -308,16 +302,21 @@ pub struct AggregatorCircuitExternalOutputs<
     pub YY: FS1::RW,
     pub cf_WW: FS2::RW,
     pub rng: R,
+    /// Time spent in native folding proofs (FS1::prove + CycleFold FS2::prove).
+    pub folding_time: std::time::Duration,
+    /// Time spent in constraint generation (witness allocation + constraint enforcement).
+    pub constraint_time: std::time::Duration,
 }
 
 pub struct AggregatorCircuit<
     T: Transcript<FS1::TranscriptField>,
     FS1: FoldingSchemeDef,
     FS2: FoldingSchemeDef,
+    Cfg: Init<F = FS1::TranscriptField>,
     R,
 > {
     pub hash_config: T::Config,
-    pub config: PlasmaBlindConfig<FS1::TranscriptField>,
+    pub config: PlasmaBlindConfig<Cfg>,
     pub pp_hash: <FS1::VC as VectorCommitmentDef>::Scalar,
     pub dk1: FS1::DeciderKey,
     pub dk2: FS2::DeciderKey,
@@ -352,8 +351,9 @@ impl<
                 >,
             >,
         >,
+    Cfg: Init<F = FS1::TranscriptField>,
     R: RngCore + Default,
-> FCircuit for AggregatorCircuit<T, FS1, FS2, R>
+> FCircuit for AggregatorCircuit<T, FS1, FS2, Cfg, R>
 {
     type Field = <FS1::VC as VectorCommitmentDef>::Scalar;
 
@@ -361,7 +361,7 @@ impl<
 
     type StateVar = AggregatorCircuitStateVar<FS1::Gadget, FS2::Gadget>;
 
-    type ExternalInputs = AggregatorCircuitExternalInputs<FS1, FS2, R>;
+    type ExternalInputs = AggregatorCircuitExternalInputs<FS1, FS2, Cfg, R>;
     type ExternalOutputs = AggregatorCircuitExternalOutputs<FS1, FS2, R>;
 
     fn dummy_state(&self) -> Self::State {
@@ -392,18 +392,12 @@ impl<
 
             next_tx_index: Default::default(),
             tx_tree_inclusion_proof: Default::default(),
-            nullifier_tree_replacement_proofs: [
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-            ],
-            nullifier_tree_insertion_proofs: [
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1],
-            ],
+            nullifier_tree_replacement_proofs: std::array::from_fn(|_| {
+                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1]
+            }),
+            nullifier_tree_insertion_proofs: std::array::from_fn(|_| {
+                vec![Default::default(); NULLIFIER_TREE_HEIGHT - 1]
+            }),
             nullifier_tree_replacement_positions: Default::default(),
             nullifier_tree_insertion_positions: Default::default(),
             rng: R::default(),
@@ -420,6 +414,7 @@ impl<
         z_i: Self::StateVar,
         external_inputs: Self::ExternalInputs, // inputs that are not part of the state
     ) -> Result<(Self::StateVar, Self::ExternalOutputs), SynthesisError> {
+        let _constraint_timer = std::time::Instant::now();
         let hash = T::new_with_pp_hash(&self.hash_config, self.pp_hash);
         let mut transcript2_native = hash.separate_domain("transcript2".as_ref());
         let hash = T::Var::new_with_pp_hash(
@@ -469,6 +464,8 @@ impl<
 
         let (UU, rho) = FS1::Gadget::verify_hinted(&(), &mut transcript1, [&U], [&u], &proof)?;
 
+        let _constraint_time_before_folding = _constraint_timer.elapsed();
+        let _folding_timer = std::time::Instant::now();
         let (YY, proof2, cf_us, cf_proofs) = if cs.is_in_setup_mode() {
             (
                 Dummy::dummy(self.dk1.to_arith_config()),
@@ -568,6 +565,8 @@ impl<
 
             (YY, proof2, cf_us, cf_proofs)
         };
+        let _folding_time = _folding_timer.elapsed();
+        let _constraint_timer2 = std::time::Instant::now();
         let proof2 =
             <FS1::Gadget as FoldingSchemeGadgetDef>::Proof::new_witness(cs.clone(), || Ok(proof2))?;
 
@@ -598,21 +597,15 @@ impl<
 
         let utxo_tree = {
             self.config.shielded_tx_leaf_config;
-            UTXOTreeGadget::new(
+            UTXOTreeGadget::<Cfg>::new(
                 (),
-                CRHParametersVar::new_constant(
-                    cs.clone(),
-                    &self.config.shielded_tx_two_to_one_config,
-                )?,
+                Cfg::Var::new_constant(cs.clone(), &self.config.shielded_tx_two_to_one_config)?,
             )
         };
 
-        let nullifier_tree = NullifierTreeGadgeet::new(
-            CRHParametersVar::new_constant(cs.clone(), &self.config.nullifier_tree_leaf_config)?,
-            CRHParametersVar::new_constant(
-                cs.clone(),
-                &self.config.nullifier_tree_two_to_one_config,
-            )?,
+        let nullifier_tree = NullifierTreeGadget::<Cfg>::new(
+            Cfg::Var::new_constant(cs.clone(), &self.config.nullifier_tree_leaf_config)?,
+            Cfg::Var::new_constant(cs.clone(), &self.config.nullifier_tree_two_to_one_config)?,
         );
 
         let pk = FpVar::new_witness(cs.clone(), || Ok(pk))?;
@@ -635,21 +628,21 @@ impl<
         let tx_tree_inclusion_proof =
             NArySparsePathVar::<
                 TRANSACTION_TREE_ARITY,
-                TransactionTreeConfig<FS1::TranscriptField>,
-                TransactionTreeConfigGadget<FS1::TranscriptField>,
+                TransactionTreeConfig<Cfg>,
+                TransactionTreeConfigGadget<Cfg>,
                 FS1::TranscriptField,
-                SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
-                SparseNAryTransactionTreeConfigGadget<FS1::TranscriptField>,
+                SparseNAryTransactionTreeConfig<Cfg>,
+                SparseNAryTransactionTreeConfigGadget<Cfg>,
             >::new_witness(cs.clone(), || Ok(tx_tree_inclusion_proof))?;
 
         let signer_tree_inclusion_proof =
             NArySparsePathVar::<
                 SIGNER_TREE_ARITY,
-                SignerTreeConfig<FS1::TranscriptField>,
-                SignerTreeConfigGadget<FS1::TranscriptField>,
+                SignerTreeConfig<Cfg>,
+                SignerTreeConfigGadget<Cfg>,
                 FS1::TranscriptField,
-                SparseNArySignerTreeConfig<FS1::TranscriptField>,
-                SparseNArySignerTreeConfigGadget<FS1::TranscriptField>,
+                SparseNArySignerTreeConfig<Cfg>,
+                SparseNArySignerTreeConfigGadget<Cfg>,
             >::new_witness(cs.clone(), || Ok(signer_tree_inclusion_proof))?;
 
         let nullifier_tree_replacement_proofs = nullifier_tree_replacement_proofs
@@ -747,6 +740,9 @@ impl<
 
         (&next_tx_index - tx_index - FpVar::one()).to_n_bits_le(64)?;
 
+        let _constraint_time_after_folding = _constraint_timer2.elapsed();
+        let _constraint_time_total = _constraint_time_before_folding + _constraint_time_after_folding;
+
         Ok((
             AggregatorCircuitStateVar {
                 V: VV,
@@ -761,6 +757,8 @@ impl<
                 YY,
                 cf_WW: cf_W,
                 rng,
+                folding_time: _folding_time,
+                constraint_time: _constraint_time_total,
             },
         ))
     }
@@ -768,11 +766,13 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use sonobe_fs::FoldingSchemeVerifier;
     use std::collections::{BTreeMap, HashMap};
 
     use ark_bn254::{Fr, G1Projective as C1};
-    use ark_crypto_primitives::crh::{CRHScheme, poseidon::CRH};
+    use ark_crypto_primitives::{
+        crh::{CRHScheme, poseidon::CRH},
+        sponge::poseidon::PoseidonConfig,
+    };
     use ark_ff::UniformRand;
     use ark_grumpkin::Projective as C2;
     use ark_relations::gr1cs::ConstraintSynthesizer;
@@ -782,8 +782,8 @@ mod tests {
         sync::Arc,
         test_rng,
     };
+    use client::transaction::TransactionValidityCircuit;
     use plasmablind_core::{
-        circuit::TransactionValidityCircuit,
         datastructures::{
             block::BlockMetadata,
             blocktree::{BLOCK_TREE_ARITY, SparseNAryBlockTree},
@@ -793,35 +793,27 @@ mod tests {
             txtree::{SparseNAryTransactionTree, TRANSACTION_TREE_ARITY},
             utxo::{UTXO, UTXOInfo, proof::UTXOProof},
         },
-        primitives::crh::{
-            BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
-            utils::{
-                initialize_griffin_config, initialize_n_to_one_config_griffin,
-                initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
-            },
-        },
+        primitives::crh::{BlockTreeCRH, IntervalCRH, UTXOCRH},
     };
     use sonobe_fs::{
         FoldingSchemeDecider, FoldingSchemeKeyGenerator, FoldingSchemePreprocessor,
-        FoldingSchemeProver, nova::Nova, ova::CycleFoldOva,
+        FoldingSchemeProver, FoldingSchemeVerifier, nova::Nova, ova::CycleFoldOva,
     };
     use sonobe_ivc::{
         IVC,
         compilers::cyclefold::{CycleFoldBasedIVC, circuits::CycleFoldCircuit},
     };
     use sonobe_primitives::{
-        arithmetizations::r1cs::R1CS,
+        arithmetizations::{Arith, r1cs::R1CS},
         circuits::ConstraintSystemBuilder,
         commitments::pedersen::Pedersen,
         transcripts::griffin::{GriffinParams, sponge::GriffinSponge},
     };
 
+    use super::*;
     use crate::Aggregator;
 
-    use super::*;
-
-    #[test]
-    fn test() -> Result<(), Box<dyn Error>> {
+    fn test_opt<Cfg: Init<F = Fr>>() -> Result<(), Box<dyn Error>> {
         type FS1 = Nova<Pedersen<C1, true>>;
         type FS2 = CycleFoldOva<Pedersen<C2, true>>;
         type T = GriffinSponge<Fr>;
@@ -830,31 +822,23 @@ mod tests {
 
         let mut rng1 = test_rng();
 
-        // initialize our plasma blind config
-        // poseidon crh only for now, should be configurable in the future
-        let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
-        let poseidon_config = initialize_poseidon_config::<Fr>();
-        let griffin_config = initialize_griffin_config::<Fr>();
+        let hash_config = Cfg::init::<2>();
 
-        let utxo_crh_config = UTXOCRH::setup(&mut rng).unwrap();
+        let utxo_crh_config = UTXOCRH::<Cfg>::setup(&mut rng).unwrap();
         let shielded_tx_leaf_config = ();
         let tx_tree_leaf_config = ();
         let signer_tree_leaf_config = ();
-        let nullifier_tree_leaf_config = IntervalCRH::setup(&mut rng).unwrap();
-        let block_tree_leaf_config = BlockTreeCRHGriffin::setup(&mut rng).unwrap();
+        let nullifier_tree_leaf_config = IntervalCRH::<Cfg>::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = BlockTreeCRH::<Cfg>::setup(&mut rng).unwrap();
 
-        let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
-        let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
-        let block_tree_n_to_one_config =
-            initialize_n_to_one_config_griffin::<BLOCK_TREE_ARITY, Fr>();
-        let tx_tree_n_to_one_config =
-            initialize_n_to_one_config_griffin::<TRANSACTION_TREE_ARITY, Fr>();
-        let signer_tree_n_to_one_config =
-            initialize_n_to_one_config_griffin::<SIGNER_TREE_ARITY, Fr>();
+        let shielded_tx_two_to_one_config = Cfg::init::<2>();
+        let nullifier_tree_two_to_one_config = Cfg::init::<2>();
+        let block_tree_n_to_one_config = Cfg::init::<BLOCK_TREE_ARITY>();
+        let tx_tree_n_to_one_config = Cfg::init::<TRANSACTION_TREE_ARITY>();
+        let signer_tree_n_to_one_config = Cfg::init::<SIGNER_TREE_ARITY>();
 
         let config = PlasmaBlindConfig::new(
-            poseidon_config.clone(),
-            griffin_config.clone(),
+            hash_config.clone(),
             utxo_crh_config,
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
@@ -914,14 +898,14 @@ mod tests {
             _r: PhantomData,
         };
         let (pk, vk) = CycleFoldBasedIVC::<FS1, FS2, T>::generate_keys(pp, &circuit)?;
-        let mut aggregator = Aggregator::<FS1, FS2, T>::new(circuit, pk);
+        let mut aggregator = Aggregator::<FS1, FS2, T, Cfg>::new(circuit, pk);
 
         // 1. Define users
         let n_users = 100;
         let user_sks = (0..n_users).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
         let user_pks = user_sks
             .iter()
-            .map(|&sk| CRH::evaluate(&config.poseidon_config, vec![sk]))
+            .map(|&sk| Cfg::H::evaluate(&config.hash_config, vec![sk]))
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         let mut user_utxos = BTreeMap::from_iter(user_pks.iter().map(|pk| (*pk, HashMap::new())));
@@ -957,7 +941,7 @@ mod tests {
                 }
 
                 let shielded_tx = ShieldedTransaction::new(
-                    &config.griffin_config,
+                    &config.hash_config,
                     &config.utxo_crh_config,
                     &user_sks[sender_index],
                     &tx,
@@ -1049,7 +1033,7 @@ mod tests {
                 if !owned_utxos.is_empty() {
                     let mut tx = TransparentTransaction::default();
 
-                    let mut input_utxos_proofs = vec![UTXOProof::default(); 4];
+                    let mut input_utxos_proofs = vec![UTXOProof::default(); TX_IO_SIZE];
 
                     for utxo_index in 0..TX_IO_SIZE.min(owned_utxos.len()) {
                         let should_include = rng.gen_bool(0.5);
@@ -1080,7 +1064,7 @@ mod tests {
                     let receiver_index2 = rng.gen_range(0..n_users);
 
                     tx.set_output(
-                        3,
+                        0,
                         UTXO::new(user_pks[receiver_index1], amount1, Fr::rand(&mut rng)),
                     );
                     tx.set_output(
@@ -1089,7 +1073,7 @@ mod tests {
                     );
 
                     let shielded_tx = ShieldedTransaction::new(
-                        &config.griffin_config,
+                        &config.hash_config,
                         &config.utxo_crh_config,
                         &user_sks[sender_index],
                         &tx,
@@ -1142,7 +1126,7 @@ mod tests {
         let (i, initial_state, current_state, current_proof, Y, cf_W) =
             aggregator.process_transaction_validity_proofs(proofs, block_tree.root());
 
-        CycleFoldBasedIVC::<FS1, FS2, T>::verify::<AggregatorCircuit<T, FS1, FS2, ThreadRng>>(
+        CycleFoldBasedIVC::<FS1, FS2, T>::verify::<AggregatorCircuit<T, FS1, FS2, Cfg, ThreadRng>>(
             &vk,
             i,
             &initial_state,
@@ -1153,6 +1137,293 @@ mod tests {
 
         FS1::decide_running(&dk1, &Y, &current_state.V).unwrap();
         FS2::decide_running(&dk2, &cf_W, &current_state.cf_U).unwrap();
+        Ok(())
+    }
+
+    #[test]
+    fn test_aggregator_circuit() -> Result<(), Box<dyn Error>> {
+        test_opt::<PoseidonConfig<Fr>>()?;
+        test_opt::<GriffinParams<Fr>>()?;
+        Ok(())
+    }
+
+    /// Run aggregation once with detailed per-step timing output.
+    /// Prints CSV to stderr: TIMING_CSV,step,{i},{total_ms},{folding_ms},{constraint_ms},{ivc_overhead_ms}
+    /// and a total line:    TIMING_CSV,total,{n_txs},{total_ms},{folding_ms},{constraint_ms},{ivc_overhead_ms}
+    fn timing_test_opt<Cfg: Init<F = Fr>>(
+        hash_name: &str,
+        n_target_txs: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        type FS1 = Nova<Pedersen<C1, true>>;
+        type FS2 = CycleFoldOva<Pedersen<C2, true>>;
+        type T = GriffinSponge<Fr>;
+
+        let mut rng = thread_rng();
+        let mut rng1 = test_rng();
+
+        let hash_config = Cfg::init::<2>();
+        let utxo_crh_config = UTXOCRH::<Cfg>::setup(&mut rng).unwrap();
+        let nullifier_tree_leaf_config = IntervalCRH::<Cfg>::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = BlockTreeCRH::<Cfg>::setup(&mut rng).unwrap();
+
+        let config = PlasmaBlindConfig::new(
+            hash_config.clone(),
+            utxo_crh_config,
+            (),
+            Cfg::init::<2>(),
+            (),
+            Cfg::init::<TRANSACTION_TREE_ARITY>(),
+            (),
+            Cfg::init::<SIGNER_TREE_ARITY>(),
+            nullifier_tree_leaf_config,
+            Cfg::init::<2>(),
+            block_tree_leaf_config.clone(),
+            Cfg::init::<BLOCK_TREE_ARITY>(),
+        );
+
+        let user_circuit = TransactionValidityCircuit::new(
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            vec![Default::default(); TX_IO_SIZE],
+            config.clone(),
+        );
+
+        let hash_config = Arc::new(GriffinParams::new(16, 5, 9));
+
+        let pp = CycleFoldBasedIVC::<FS1, FS2, T>::preprocess(
+            (1 << 19, (2048, 2048), hash_config.clone()),
+            &mut rng1,
+        )?;
+        let pp_f = FS1::preprocess(1 << 16, &mut rng1)?;
+
+        let cyclefold_circuit =
+            CycleFoldCircuit::<<FS1 as FoldingSchemeCycleFoldExt<1, 1>>::CFConfig>::default();
+        let cs = ConstraintSystemBuilder::new()
+            .with_setup_mode()
+            .with_circuit(cyclefold_circuit)
+            .synthesize()?;
+        let dk2 = FS2::generate_keys(pp.1.clone(), R1CS::from(cs))?;
+
+        let cs = ConstraintSystemBuilder::new()
+            .with_setup_mode()
+            .with_circuit(user_circuit)
+            .synthesize()?;
+        let dk1 = FS1::generate_keys(pp_f, R1CS::from(cs))?;
+
+        let circuit = AggregatorCircuit {
+            config: config.clone(),
+            hash_config: hash_config.clone(),
+            pp_hash: Default::default(),
+            dk1: dk1.clone(),
+            dk2: dk2.clone(),
+            _r: PhantomData,
+        };
+        let (pk, _vk) = CycleFoldBasedIVC::<FS1, FS2, T>::generate_keys(pp, &circuit)?;
+        let mut aggregator = Aggregator::<FS1, FS2, T, Cfg>::new(circuit, pk);
+
+        // Generate users — oversubscribe to ensure enough valid txs
+        let n_users = n_target_txs * 4;
+        let user_sks = (0..n_users).map(|_| Fr::rand(&mut rng)).collect::<Vec<_>>();
+        let user_pks = user_sks
+            .iter()
+            .map(|&sk| Cfg::H::evaluate(&config.hash_config, vec![sk]))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut user_utxos = BTreeMap::from_iter(user_pks.iter().map(|pk| (*pk, HashMap::new())));
+
+        // Block 0: give users UTXOs
+        let block_height = 0;
+        let mut block_tree = SparseNAryBlockTree::blank(
+            &config.block_tree_leaf_config,
+            &config.block_tree_n_to_one_config,
+            &BlockMetadata::default(),
+        )?;
+
+        let mut transactions_map = BTreeMap::new();
+        let mut signers_map = BTreeMap::new();
+        for sender_index in 0..n_users {
+            let mut tx = TransparentTransaction::default();
+            for utxo_index in 0..TX_IO_SIZE {
+                let receiver_index = rng.gen_range(0..n_users);
+                let amount: u32 = rng.r#gen();
+                let utxo = UTXO::new(user_pks[receiver_index], amount as u64, Fr::rand(&mut rng));
+                tx.set_output(utxo_index, utxo);
+            }
+            let shielded_tx = ShieldedTransaction::new(
+                &config.hash_config,
+                &config.utxo_crh_config,
+                &user_sks[sender_index],
+                &tx,
+            )?;
+            let utxo_tree = UTXOTree::new(
+                &config.shielded_tx_leaf_config,
+                &config.shielded_tx_two_to_one_config,
+                &BTreeMap::from_iter(shielded_tx.output_utxo_commitments.into_iter().enumerate()),
+            )?;
+            for utxo_index in 0..TX_IO_SIZE {
+                let utxo = tx.outputs[utxo_index];
+                if !utxo.is_dummy {
+                    user_utxos.get_mut(&utxo.pk).unwrap().insert(
+                        utxo,
+                        (
+                            UTXOInfo {
+                                utxo_index,
+                                tx_index: transactions_map.len(),
+                                block_height,
+                                from: user_pks[sender_index],
+                            },
+                            utxo_tree.generate_membership_proof(utxo_index)?,
+                        ),
+                    );
+                }
+            }
+            transactions_map.insert(transactions_map.len(), utxo_tree.root());
+            signers_map.insert(signers_map.len(), user_pks[sender_index]);
+        }
+
+        let transactions_tree = SparseNAryTransactionTree::new(
+            &config.tx_tree_leaf_config,
+            &config.tx_tree_n_to_one_config,
+            &transactions_map,
+            &Fr::default(),
+        )?;
+        let signer_tree = SparseNArySignerTree::new(
+            &config.signer_tree_leaf_config,
+            &config.signer_tree_n_to_one_config,
+            &signers_map,
+            &Fr::default(),
+        )?;
+        let prev_block = BlockMetadata {
+            tx_tree_root: transactions_tree.root(),
+            signer_tree_root: signer_tree.root(),
+            nullifier_tree_root: Fr::default(),
+            height: block_height,
+        };
+        block_tree.update(block_height, &prev_block)?;
+        let block_inclusion_proof = block_tree.generate_proof(block_height)?;
+        let transaction_inclusion_proofs = (0..transactions_map.len())
+            .map(|i| transactions_tree.generate_proof(i))
+            .collect::<Result<Vec<_>, _>>()?;
+        let signer_inclusion_proofs = (0..signers_map.len())
+            .map(|i| signer_tree.generate_proof(i))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Block 1: build exactly n_target_txs transactions
+        let mut out_transactions = vec![];
+        let mut out_senders = vec![];
+        let mut assignments_vec = vec![];
+
+        for sender_index in 0..n_users {
+            if out_transactions.len() >= n_target_txs {
+                break;
+            }
+            let owned_utxos = user_utxos[&user_pks[sender_index]]
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            if owned_utxos.is_empty() {
+                continue;
+            }
+
+            let mut tx = TransparentTransaction::default();
+            let mut input_utxos_proofs = vec![UTXOProof::default(); TX_IO_SIZE];
+            for utxo_index in 0..TX_IO_SIZE.min(owned_utxos.len()) {
+                let utxo = owned_utxos[utxo_index];
+                let (info, proof) = user_utxos
+                    .get_mut(&user_pks[sender_index])
+                    .unwrap()
+                    .remove(&utxo)
+                    .unwrap();
+                tx.set_input(utxo_index, utxo, info);
+                input_utxos_proofs[utxo_index] = UTXOProof::new(
+                    prev_block.clone(),
+                    proof,
+                    signer_inclusion_proofs[info.tx_index].clone(),
+                    transaction_inclusion_proofs[info.tx_index].clone(),
+                    block_inclusion_proof.clone(),
+                );
+            }
+
+            let amount = tx.inputs.iter().map(|i| i.amount).sum::<u64>();
+            let amount1 = rng.gen_range(0..=amount);
+            let amount2 = amount - amount1;
+            tx.set_output(
+                0,
+                UTXO::new(user_pks[rng.gen_range(0..n_users)], amount1, Fr::rand(&mut rng)),
+            );
+            tx.set_output(
+                1,
+                UTXO::new(user_pks[rng.gen_range(0..n_users)], amount2, Fr::rand(&mut rng)),
+            );
+
+            let shielded_tx = ShieldedTransaction::new(
+                &config.hash_config,
+                &config.utxo_crh_config,
+                &user_sks[sender_index],
+                &tx,
+            )?;
+            let cs = ConstraintSystem::new_ref();
+            TransactionValidityCircuit::new(
+                user_sks[sender_index],
+                user_pks[sender_index],
+                tx,
+                shielded_tx.clone(),
+                block_tree.root(),
+                input_utxos_proofs,
+                config.clone(),
+            )
+            .generate_constraints(cs.clone())?;
+            assert!(cs.is_satisfied()?);
+
+            assignments_vec.push(cs.assignments()?);
+            out_senders.push(user_pks[sender_index]);
+            out_transactions.push(shielded_tx);
+        }
+
+        let actual_n = out_transactions.len();
+        eprintln!("\n=== Timing: {hash_name}, m=n={}, {actual_n} transactions ===", TX_IO_SIZE);
+        eprintln!("step,prove_step_ms,folding_ms,constraint_ms,ivc_overhead_ms");
+
+        aggregator.process_transactions(out_senders, out_transactions);
+
+        let mut proofs = vec![];
+        for assignments in assignments_vec {
+            let hash = T::new_with_pp_hash(&hash_config, Default::default());
+            let mut transcript1 = hash.separate_domain("transcript1".as_ref());
+            let (W, U) = dk1.sample((), &mut rng1)?;
+            let (w, u) = dk1.sample(assignments, &mut rng1)?;
+            let (WW, _, proof, _) = FS1::prove(
+                dk1.to_pk(),
+                &mut transcript1,
+                &[&W],
+                &[&U],
+                &[&w],
+                &[&u],
+                &mut rng1,
+            )?;
+            proofs.push(Some((WW, U, u, proof)));
+        }
+
+        let (valid_indexes, valid_proofs) =
+            aggregator.prepare_validity_proofs(proofs, block_tree.root());
+        eprintln!("Valid proofs: {}/{actual_n}", valid_proofs.len());
+
+        let start = std::time::Instant::now();
+        aggregator.aggregate_validity_proofs(valid_indexes, valid_proofs, block_tree.root());
+        eprintln!("Wall-clock aggregate time: {:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore] // Run with: cargo test -p aggregator -- timing_aggregator --ignored --nocapture
+    fn timing_aggregator() -> Result<(), Box<dyn Error>> {
+        for n in [2, 4, 8, 16, 32, 64, 128] {
+            timing_test_opt::<PoseidonConfig<Fr>>("poseidon", n)?;
+            timing_test_opt::<GriffinParams<Fr>>("griffin", n)?;
+        }
         Ok(())
     }
 }

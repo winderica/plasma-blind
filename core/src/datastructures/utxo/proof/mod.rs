@@ -3,13 +3,13 @@ use ark_ff::PrimeField;
 use nmerkle_trees::sparse::NArySparsePath;
 use sonobe_primitives::transcripts::Absorbable;
 
-use crate::datastructures::{
+use crate::{datastructures::{
     block::BlockMetadata,
     blocktree::{BLOCK_TREE_ARITY, BlockTreeConfig, SparseNAryBlockTreeConfig},
     shieldedtx::SHIELDED_TX_TREE_HEIGHT,
     signerlist::{SIGNER_TREE_ARITY, SignerTreeConfig, SparseNArySignerTreeConfig},
     txtree::{SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY, TransactionTreeConfig},
-};
+}, primitives::crh::utils::Init};
 
 pub mod constraints;
 
@@ -17,38 +17,38 @@ pub mod constraints;
 // valid utxo = included in shielded tx, within a tx tree which was signed at a certain block
 // included within the block tree
 #[derive(Clone)]
-pub struct UTXOProof<F: PrimeField + Absorb + Absorbable> {
-    pub block: BlockMetadata<F>,
-    pub utxo_path: Vec<F>,
+pub struct UTXOProof<Cfg: Init> {
+    pub block: BlockMetadata<Cfg::F>,
+    pub utxo_path: Vec<Cfg::F>,
     pub signer_path:
-        NArySparsePath<SIGNER_TREE_ARITY, SignerTreeConfig<F>, SparseNArySignerTreeConfig<F>>,
+        NArySparsePath<SIGNER_TREE_ARITY, SignerTreeConfig<Cfg>, SparseNArySignerTreeConfig<Cfg>>,
     pub tx_path: NArySparsePath<
         TRANSACTION_TREE_ARITY,
-        TransactionTreeConfig<F>,
-        SparseNAryTransactionTreeConfig<F>,
+        TransactionTreeConfig<Cfg>,
+        SparseNAryTransactionTreeConfig<Cfg>,
     >,
     pub block_path:
-        NArySparsePath<BLOCK_TREE_ARITY, BlockTreeConfig<F>, SparseNAryBlockTreeConfig<F>>,
+        NArySparsePath<BLOCK_TREE_ARITY, BlockTreeConfig<Cfg>, SparseNAryBlockTreeConfig<Cfg>>,
 }
 
-impl<F: PrimeField + Absorb + Absorbable> UTXOProof<F> {
+impl<Cfg: Init> UTXOProof<Cfg> {
     pub fn new(
-        block: BlockMetadata<F>,
-        utxo_inclusion_proof: Vec<F>,
+        block: BlockMetadata<Cfg::F>,
+        utxo_inclusion_proof: Vec<Cfg::F>,
         signer_inclusion_proof: NArySparsePath<
             SIGNER_TREE_ARITY,
-            SignerTreeConfig<F>,
-            SparseNArySignerTreeConfig<F>,
+            SignerTreeConfig<Cfg>,
+            SparseNArySignerTreeConfig<Cfg>,
         >,
         tx_inclusion_proof: NArySparsePath<
             TRANSACTION_TREE_ARITY,
-            TransactionTreeConfig<F>,
-            SparseNAryTransactionTreeConfig<F>,
+            TransactionTreeConfig<Cfg>,
+            SparseNAryTransactionTreeConfig<Cfg>,
         >,
         block_inclusion_proof: NArySparsePath<
             BLOCK_TREE_ARITY,
-            BlockTreeConfig<F>,
-            SparseNAryBlockTreeConfig<F>,
+            BlockTreeConfig<Cfg>,
+            SparseNAryBlockTreeConfig<Cfg>,
         >,
     ) -> Self {
         UTXOProof {
@@ -61,7 +61,7 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOProof<F> {
     }
 }
 
-impl<F: PrimeField + Absorb + Absorbable> Default for UTXOProof<F> {
+impl<Cfg: Init> Default for UTXOProof<Cfg> {
     fn default() -> Self {
         Self {
             block: Default::default(),

@@ -1,138 +1,186 @@
-use ark_crypto_primitives::sponge::poseidon::{PoseidonConfig, find_poseidon_ark_and_mds};
+use ark_crypto_primitives::{
+    crh::{
+        CRHScheme, CRHSchemeGadget,
+        poseidon::{CRH, constraints::{CRHGadget, CRHParametersVar}},
+    },
+    sponge::{
+        Absorb,
+        poseidon::{PoseidonConfig, PoseidonDefaultConfigEntry, find_poseidon_ark_and_mds},
+    },
+};
 use ark_ff::PrimeField;
-use sonobe_primitives::transcripts::{Absorbable, griffin::GriffinParams};
+use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use sonobe_primitives::transcripts::{
+    Absorbable,
+    griffin::{
+        GriffinParams,
+        constraints::crh::GriffinParamsVar,
+        sponge::{GriffinSponge, GriffinSpongeVar},
+    },
+};
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_two_to_one_binary_tree_poseidon_config<F: PrimeField>() -> PoseidonConfig<F> {
-    // eprint 2019/458, p.8, for trees of arity = 2 at 128 bits of security
-    let full_rounds = 8;
-    let partial_rounds = 57;
-    let alpha = 5; // fixed, don't use -1 or 3
-    let rate = 2; // rate is at 2 for binary tree
-    let (ark, mds) = find_poseidon_ark_and_mds::<F>(
-        F::MODULUS_BIT_SIZE as u64,
-        rate,
-        full_rounds as u64,
-        partial_rounds as u64,
-        0,
-    );
-    PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+pub trait Init: Clone + CanonicalSerialize + CanonicalDeserialize {
+    type F: PrimeField + Absorb + Absorbable;
+    type H: CRHScheme<Input = [Self::F], Output = Self::F, Parameters = Self>;
+    type HGadget: CRHSchemeGadget<
+            Self::H,
+            Self::F,
+            InputVar = [FpVar<Self::F>],
+            OutputVar = FpVar<Self::F>,
+            ParametersVar = Self::Var,
+        >;
+    type Var: Clone + AllocVar<Self, Self::F>;
+
+    fn init<const N: usize>() -> Self;
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_utxocrh_config<F: PrimeField>() -> PoseidonConfig<F> {
-    let rate = 4;
-    let full_rounds = 8;
-    let partial_rounds = 60;
-    let alpha = 5; // fixed
-    let (ark, mds) = find_poseidon_ark_and_mds::<F>(
-        F::MODULUS_BIT_SIZE as u64,
-        rate,
-        full_rounds as u64,
-        partial_rounds as u64,
-        0,
-    );
-    PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+impl<F: PrimeField + Absorbable + Absorb> Init for GriffinParams<F> {
+    type F = F;
+    type H = GriffinSponge<F>;
+    type HGadget = GriffinSpongeVar<F>;
+    type Var = GriffinParamsVar<F>;
+
+    fn init<const N: usize>() -> Self {
+        match N {
+            0 | 1 => unimplemented!(),
+            2 => GriffinParams::<F>::new(3, 5, 14),
+            3 => GriffinParams::<F>::new(4, 5, 11),
+            _ => GriffinParams::<F>::new((N + 1).next_multiple_of(4), 5, 9),
+        }
+    }
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_utxocrh_config_griffin<F: PrimeField>() -> GriffinParams<F> {
-    GriffinParams::<F>::new(4, 5, 11)
+fn log2<F: PrimeField>() -> f64 {
+    let x = F::MODULUS.into();
+    let bits = x.bits(); // bit length
+    if bits <= 53 {
+        // Fits in f64 mantissa exactly
+        let val: u64 = x.try_into().unwrap();
+        return (val as f64).log2();
+    }
+    // Shift right so only top ~53 bits remain
+    let shift = bits - 53;
+    let top = x >> shift;
+    let top_u64: u64 = top.try_into().unwrap();
+    (top_u64 as f64).log2() + shift as f64
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_shieldedtransactioncrh_config<F: PrimeField>() -> PoseidonConfig<F> {
-    let rate = 2;
-    let full_rounds = 8;
-    let partial_rounds = 57;
-    let alpha = 5; // fixed
-    let (ark, mds) = find_poseidon_ark_and_mds::<F>(
-        F::MODULUS_BIT_SIZE as u64,
-        rate,
-        full_rounds as u64,
-        partial_rounds as u64,
-        0,
-    );
-    PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+fn log_base(x: f64, base: f64) -> f64 {
+    x.ln() / base.ln()
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_publickeycrh_config<F: PrimeField>() -> PoseidonConfig<F> {
-    let rate = 3;
-    let full_rounds = 8;
-    let partial_rounds = 60;
-    let alpha = 5; // fixed
-    let (ark, mds) = find_poseidon_ark_and_mds::<F>(
-        F::MODULUS_BIT_SIZE as u64,
-        rate,
-        full_rounds as u64,
-        partial_rounds as u64,
-        0,
-    );
-    PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+fn sat_inequiv_alpha<F: PrimeField>(t: usize, r_f: u64, r_p: u64, alpha: u64, m: usize) -> bool {
+    let log2_p = log2::<F>();
+    let n = log2_p.ceil() as usize;
+    let m_f = m as f64;
+    let n_f = n as f64;
+    let t_f = t as f64;
+    let r_p_f = r_p as f64;
+    let r_f_f = r_f as f64;
+    let alpha_f = alpha as f64;
+    let log2_alpha = log_base(2.0, alpha_f);
+
+    let r_f_1: f64 = if m_f <= (log2_p - (alpha_f - 1.0) / 2.0).floor() * (t_f + 1.0) {
+        6.0
+    } else {
+        10.0
+    };
+
+    let r_f_2 = 1.0 + log2_alpha * m_f.min(n_f) + log_base(t_f, alpha_f).ceil() - r_p_f;
+
+    let r_f_3 = 1.0 + log2_alpha * (m_f / 3.0).min(log2_p / 2.0) - r_p_f;
+
+    let r_f_4 = t_f - 1.0 + (log2_alpha * m_f / (t_f + 1.0)).min(log2_alpha * log2_p / 2.0) - r_p_f;
+
+    let r_f_max = r_f_1
+        .ceil()
+        .max(r_f_2.ceil())
+        .max(r_f_3.ceil())
+        .max(r_f_4.ceil());
+
+    r_f_f >= r_f_max
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_blockcrh_config<F: PrimeField>() -> PoseidonConfig<F> {
-    let rate = 3;
-    let full_rounds = 8;
-    let partial_rounds = 60;
-    let alpha = 5; // fixed
-    let (ark, mds) = find_poseidon_ark_and_mds::<F>(
-        F::MODULUS_BIT_SIZE as u64,
-        rate,
-        full_rounds as u64,
-        partial_rounds as u64,
-        0,
-    );
-    PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+fn get_sbox_cost(r_f: u64, r_p: u64, _n: usize, t: usize) -> usize {
+    t * r_f as usize + r_p as usize
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_blockcrh_config_griffin<F: PrimeField + Absorbable>() -> GriffinParams<F> {
-    // from table 2 in https://eprint.iacr.org/2022/403.pdf
-    GriffinParams::<F>::new(4, 5, 11)
+fn get_size_cost(r_f: u64, r_p: u64, n_total: usize, t: usize) -> usize {
+    let n = ((n_total as f64) / (t as f64)).ceil() as usize;
+    n_total * r_f as usize + n * r_p as usize
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_poseidon_config<F: PrimeField>() -> PoseidonConfig<F> {
-    let full_rounds = 8;
-    let partial_rounds = 60;
-    let alpha = 5; // fixed
-    let rate = 4;
-    let (ark, mds) = find_poseidon_ark_and_mds::<F>(
-        F::MODULUS_BIT_SIZE as u64,
-        rate,
-        full_rounds as u64,
-        partial_rounds as u64,
-        0,
-    );
-    PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
+fn get_depth_cost(r_f: u64, r_p: u64, _n: usize, _t: usize) -> usize {
+    r_f as usize + r_p as usize
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_griffin_config<F: PrimeField + Absorbable>() -> GriffinParams<F> {
-    // from table 2 in https://eprint.iacr.org/2022/403.pdf
-    GriffinParams::<F>::new(4, 5, 11)
+fn find_fd_round_numbers<F: PrimeField>(
+    t: usize,
+    alpha: u64,
+    m: usize,
+    cost_function: fn(u64, u64, usize, usize) -> usize,
+    security_margin: bool,
+) -> (u64, u64) {
+    let n = log2::<F>().ceil() as usize;
+    let n_total = n * t;
+
+    let mut r_p: u64 = 0;
+    let mut r_f: u64 = 0;
+    let mut min_cost = usize::MAX;
+    let mut max_cost_rf: u64 = 0;
+
+    for r_p_t in 1u64..500 {
+        for r_f_t in (4u64..100).step_by(2) {
+            if !sat_inequiv_alpha::<F>(t, r_f_t, r_p_t, alpha, m) {
+                continue;
+            }
+
+            let (r_f_eff, r_p_eff) = if security_margin {
+                (r_f_t + 2, (r_p_t as f64 * 1.075).ceil() as u64)
+            } else {
+                (r_f_t, r_p_t)
+            };
+
+            let cost = cost_function(r_f_eff, r_p_eff, n_total, t);
+            if cost < min_cost || (cost == min_cost && r_f_eff < max_cost_rf) {
+                r_p = r_p_eff;
+                r_f = r_f_eff;
+                min_cost = cost;
+                max_cost_rf = r_f;
+            }
+        }
+    }
+
+    (r_f, r_p)
 }
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_n_to_one_config<const N: usize, F: PrimeField>() -> PoseidonConfig<F> {
-    let rate = N;
-    let full_rounds = 8;
-    let partial_rounds = 60;
-    let alpha = 5; // fixed
-    let (ark, mds) = find_poseidon_ark_and_mds::<F>(
-        F::MODULUS_BIT_SIZE as u64,
-        rate,
-        full_rounds as u64,
-        partial_rounds as u64,
-        0,
-    );
-    PoseidonConfig::new(full_rounds, partial_rounds, alpha, mds, ark, rate, 1)
-}
+impl<F: PrimeField + Absorb + Absorbable> Init for PoseidonConfig<F> {
+    type F = F;
+    type H = CRH<F>;
+    type HGadget = CRHGadget<F>;
+    type Var = CRHParametersVar<F>;
 
-// WARNING: this config should be checked and not used in production as is
-pub fn initialize_n_to_one_config_griffin<const N: usize, F: PrimeField>() -> GriffinParams<F> {
-    GriffinParams::<F>::new(N, 5, 11)
+    fn init<const N: usize>() -> Self {
+        let alpha = 5;
+        let (full_rounds, partial_rounds) =
+            find_fd_round_numbers::<F>(N, alpha, 128, get_sbox_cost, true);
+        let (ark, mds) = find_poseidon_ark_and_mds::<F>(
+            F::MODULUS_BIT_SIZE as u64,
+            N,
+            full_rounds,
+            partial_rounds,
+            0,
+        );
+
+        Self {
+            full_rounds: full_rounds as usize,
+            partial_rounds: partial_rounds as usize,
+            alpha,
+            ark,
+            mds,
+            rate: N,
+            capacity: 1,
+        }
+    }
 }

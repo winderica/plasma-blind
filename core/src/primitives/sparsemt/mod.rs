@@ -26,7 +26,7 @@ pub struct MerkleSparseTree<P: SparseConfig> {
 
 impl<
     F: PrimeField + Absorb,
-    P: SparseConfig<InnerDigest = F, LeafDigest = F, TwoToOneHash = TwoToOneCRH<F>>,
+    P: SparseConfig<InnerDigest = F, LeafDigest = F, TwoToOneHash: TwoToOneCRHScheme<Input = F>>,
 > MerkleSparseTree<P>
 {
     /// obtain an empty tree
@@ -335,7 +335,7 @@ fn convert_index_to_last_level(index: usize, tree_height: usize) -> usize {
 
 fn gen_empty_hashes<
     F: PrimeField + Absorb,
-    P: SparseConfig<InnerDigest = F, LeafDigest = F, TwoToOneHash = TwoToOneCRH<F>>,
+    P: SparseConfig<InnerDigest = F, LeafDigest = F, TwoToOneHash: TwoToOneCRHScheme<Input = F>>,
 >(
     leaf_hash_params: &<P::LeafHash as CRHScheme>::Parameters,
     two_to_one_hash_params: &<P::TwoToOneHash as TwoToOneCRHScheme>::Parameters,

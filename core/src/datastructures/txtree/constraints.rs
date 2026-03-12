@@ -10,50 +10,53 @@ use ark_r1cs_std::fields::fp::FpVar;
 use nmerkle_trees::sparse::traits::NArySparseConfigGadget;
 use sonobe_primitives::transcripts::{Absorbable, griffin::sponge::GriffinSpongeVar};
 
-use crate::primitives::{
-    crh::constraints::IdentityCRHGadget, sparsemt::constraints::MerkleSparseTreeGadget,
-};
-
-use super::TransactionTreeConfig;
 use super::{
     NARY_TRANSACTION_TREE_HEIGHT, SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY,
+    TransactionTreeConfig,
+};
+use crate::primitives::{
+    crh::{constraints::{IdentityCRHGadget, NTo1CRHVar}, utils::Init},
+    sparsemt::constraints::MerkleSparseTreeGadget,
 };
 
-pub type TransactionTreeGadget<F> =
-    MerkleSparseTreeGadget<TransactionTreeConfig<F>, F, TransactionTreeConfigGadget<F>>;
+pub type TransactionTreeGadget<Cfg> = MerkleSparseTreeGadget<
+    TransactionTreeConfig<Cfg>,
+    <Cfg as Init>::F,
+    TransactionTreeConfigGadget<Cfg>,
+>;
 
-pub struct SparseNAryTransactionTreeConfigGadget<F: Absorb + PrimeField> {
-    _f: PhantomData<F>,
+pub struct SparseNAryTransactionTreeConfigGadget<Cfg: Init> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb + Absorbable>
+impl<Cfg: Init>
     NArySparseConfigGadget<
-        TransactionTreeConfig<F>,
-        TransactionTreeConfigGadget<F>,
-        F,
-        SparseNAryTransactionTreeConfig<F>,
-    > for SparseNAryTransactionTreeConfigGadget<F>
+        TransactionTreeConfig<Cfg>,
+        TransactionTreeConfigGadget<Cfg>,
+        <Cfg as Init>::F,
+        SparseNAryTransactionTreeConfig<Cfg>,
+    > for SparseNAryTransactionTreeConfigGadget<Cfg>
 {
     const HEIGHT: u64 = NARY_TRANSACTION_TREE_HEIGHT;
-    type NToOneHash = GriffinSpongeVar<F>;
+    type NToOneHash = Cfg::HGadget;
 }
 
 #[derive(Clone, Debug)]
-pub struct TransactionTreeConfigGadget<F> {
-    _f: PhantomData<F>,
+pub struct TransactionTreeConfigGadget<Cfg: Init> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> ConfigGadget<TransactionTreeConfig<F>, F>
-    for TransactionTreeConfigGadget<F>
+impl<Cfg: Init> ConfigGadget<TransactionTreeConfig<Cfg>, <Cfg as Init>::F>
+    for TransactionTreeConfigGadget<Cfg>
 {
     // leaves are shielded transactions (i.e. roots of a mt)
-    type Leaf = FpVar<F>;
-    type LeafDigest = FpVar<F>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
-    type InnerDigest = FpVar<F>;
+    type Leaf = FpVar<<Cfg as Init>::F>;
+    type LeafDigest = FpVar<<Cfg as Init>::F>;
+    type LeafInnerConverter = IdentityDigestConverter<FpVar<<Cfg as Init>::F>>;
+    type InnerDigest = FpVar<<Cfg as Init>::F>;
     // the leaf hash is identity, since leaves are roots of mt
-    type LeafHash = IdentityCRHGadget<F>;
-    type TwoToOneHash = TwoToOneCRHGadget<F>;
+    type LeafHash = IdentityCRHGadget<Cfg::F>;
+    type TwoToOneHash = NTo1CRHVar<Cfg, 2>;
 }
 
 //impl<F: PrimeField + Absorb> SparseConfigGadget<TransactionTreeConfig<F>, F>

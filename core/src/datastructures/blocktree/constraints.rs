@@ -14,43 +14,44 @@ use super::{BLOCK_TREE_ARITY, BlockTreeConfig, NARY_BLOCK_TREE_HEIGHT, SparseNAr
 use crate::{
     datastructures::block::constraints::BlockMetadataVar,
     primitives::{
-        crh::constraints::BlockTreeVarCRHGriffin, sparsemt::constraints::MerkleSparseTreeGadget,
+        crh::{
+            constraints::{BlockTreeVarCRH, NTo1CRHVar},
+            utils::Init,
+        },
+        sparsemt::constraints::MerkleSparseTreeGadget,
     },
 };
 
 pub type BlockTreeGadget<F> =
     MerkleSparseTreeGadget<BlockTreeConfig<F>, F, BlockTreeConfigGadget<F>>;
 
-pub struct SparseNAryBlockTreeConfigGadget<F: Absorb + PrimeField> {
-    _f: PhantomData<F>,
+pub struct SparseNAryBlockTreeConfigGadget<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb + Absorbable>
+impl<Cfg: Init>
     NArySparseConfigGadget<
-        BlockTreeConfig<F>,
-        BlockTreeConfigGadget<F>,
-        F,
-        SparseNAryBlockTreeConfig<F>,
-    > for SparseNAryBlockTreeConfigGadget<F>
+        BlockTreeConfig<Cfg>,
+        BlockTreeConfigGadget<Cfg>,
+        Cfg::F,
+        SparseNAryBlockTreeConfig<Cfg>,
+    > for SparseNAryBlockTreeConfigGadget<Cfg>
 {
     const HEIGHT: u64 = NARY_BLOCK_TREE_HEIGHT;
-    type NToOneHash = GriffinSpongeVar<F>;
+    type NToOneHash = Cfg::HGadget;
 }
 
-pub struct BlockTreeConfigGadget<F: Absorb + PrimeField> {
-    _f: PhantomData<F>,
+pub struct BlockTreeConfigGadget<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: Absorb + PrimeField + Absorbable> ConfigGadget<BlockTreeConfig<F>, F>
-    for BlockTreeConfigGadget<F>
-{
-    type Leaf = BlockMetadataVar<F>;
-    type LeafDigest = FpVar<F>;
-    type LeafInnerConverter = IdentityDigestConverter<FpVar<F>>;
-    type InnerDigest = FpVar<F>;
-    type LeafHash = BlockTreeVarCRHGriffin<F>;
-    // NOTE: the TwoToOneHash is not used when using NAryTrees
-    type TwoToOneHash = TwoToOneCRHGadget<F>;
+impl<Cfg: Init> ConfigGadget<BlockTreeConfig<Cfg>, Cfg::F> for BlockTreeConfigGadget<Cfg> {
+    type Leaf = BlockMetadataVar<Cfg::F>;
+    type LeafDigest = FpVar<Cfg::F>;
+    type LeafInnerConverter = IdentityDigestConverter<FpVar<Cfg::F>>;
+    type InnerDigest = FpVar<Cfg::F>;
+    type LeafHash = BlockTreeVarCRH<Cfg>;
+    type TwoToOneHash = NTo1CRHVar<Cfg, 2>;
 }
 
 //impl<F: Absorb + PrimeField + Absorbable> SparseConfigGadget<BlockTreeConfig<F>, F>

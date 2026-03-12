@@ -9,24 +9,24 @@ use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 
 use super::{keypair::PublicKey, user::UserId};
-use crate::primitives::crh::PublicKeyCRH;
+use crate::primitives::crh::{NTo1CRH, PublicKeyCRH, utils::Init};
 
 pub mod constraints;
 
 pub type PublicKeyMap<C> = Map<UserId, PublicKey<C>>;
 pub type PublicKeyTree<P> = MerkleTree<P>;
 
-pub struct PublicKeyTreeConfig<C: CurveGroup<BaseField: PrimeField + Absorb>> {
-    _c: PhantomData<C>,
+pub struct PublicKeyTreeConfig<Cfg, C> {
+    _c: PhantomData<(Cfg, C)>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> Config for PublicKeyTreeConfig<C> {
+impl<Cfg: Init, C: CurveGroup<BaseField = Cfg::F>> Config for PublicKeyTreeConfig<Cfg, C> {
     type Leaf = PublicKey<C>;
     type LeafDigest = C::BaseField;
     type LeafInnerDigestConverter = IdentityDigestConverter<C::BaseField>;
     type InnerDigest = C::BaseField;
-    type LeafHash = PublicKeyCRH<C>;
-    type TwoToOneHash = TwoToOneCRH<C::BaseField>;
+    type LeafHash = PublicKeyCRH<Cfg, C>;
+    type TwoToOneHash = NTo1CRH<Cfg, 2>;
 }
 
 #[cfg(test)]
@@ -62,7 +62,7 @@ pub mod tests {
             })
             .collect::<Vec<PublicKey<Projective>>>();
         let public_key_tree =
-            PublicKeyTree::<PublicKeyTreeConfig<Projective>>::new(&pp, &pp, &public_keys).unwrap();
+            PublicKeyTree::<PublicKeyTreeConfig<_, Projective>>::new(&pp, &pp, &public_keys).unwrap();
 
         for _ in 0..100 {
             let expected_random_user_id = rng.gen_range(0..n_users);
@@ -74,9 +74,9 @@ pub mod tests {
                     .unwrap();
             let public_key_proof_var =
                 PathVar::<
-                    PublicKeyTreeConfig<Projective>,
+                    PublicKeyTreeConfig<_, Projective>,
                     Fr,
-                    PublicKeyTreeConfigGadget<Projective, GVar, PublicKeyTreeConfig<Projective>>,
+                    PublicKeyTreeConfigGadget<_, Projective, GVar>,
                 >::new_witness(cs.clone(), || Ok(user_public_key_proof))
                 .unwrap();
 

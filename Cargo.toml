@@ -23,6 +23,8 @@ thiserror = "2.0.16"
 num-bigint = { version = "0.4.3" }
 nmerkle-trees = { git = "https://github.com/dmpierre/ark-nmerkle-trees", rev = "f3df688ae94d43dc9a217b545ee2bee11c41da96" }
 
+criterion = { version = "0.5", features = ["html_reports"] }
+
 plasmablind-core = { path = "core" }
 
 [patch.crates-io]

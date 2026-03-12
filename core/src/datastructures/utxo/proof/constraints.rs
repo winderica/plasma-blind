@@ -33,41 +33,41 @@ use crate::{
         },
         utxo::constraints::{UTXOInfoVar, UTXOVar},
     },
-    primitives::crh::constraints::UTXOVarCRH,
+    primitives::crh::{constraints::UTXOVarCRH, utils::Init},
 };
 
-pub struct UTXOProofVar<F: PrimeField + Absorb + Absorbable> {
-    block: BlockMetadataVar<F>,
-    utxo_inclusion_proof: Vec<FpVar<F>>,
+pub struct UTXOProofVar<Cfg: Init> {
+    block: BlockMetadataVar<Cfg::F>,
+    utxo_inclusion_proof: Vec<FpVar<Cfg::F>>,
     signer_inclusion_proof: NArySparsePathVar<
         SIGNER_TREE_ARITY,
-        SignerTreeConfig<F>,
-        SignerTreeConfigGadget<F>,
-        F,
-        SparseNArySignerTreeConfig<F>,
-        SparseNArySignerTreeConfigGadget<F>,
+        SignerTreeConfig<Cfg>,
+        SignerTreeConfigGadget<Cfg>,
+        Cfg::F,
+        SparseNArySignerTreeConfig<Cfg>,
+        SparseNArySignerTreeConfigGadget<Cfg>,
     >,
     tx_inclusion_proof: NArySparsePathVar<
         TRANSACTION_TREE_ARITY,
-        TransactionTreeConfig<F>,
-        TransactionTreeConfigGadget<F>,
-        F,
-        SparseNAryTransactionTreeConfig<F>,
-        SparseNAryTransactionTreeConfigGadget<F>,
+        TransactionTreeConfig<Cfg>,
+        TransactionTreeConfigGadget<Cfg>,
+        Cfg::F,
+        SparseNAryTransactionTreeConfig<Cfg>,
+        SparseNAryTransactionTreeConfigGadget<Cfg>,
     >,
     block_inclusion_proof: NArySparsePathVar<
         BLOCK_TREE_ARITY,
-        BlockTreeConfig<F>,
-        BlockTreeConfigGadget<F>,
-        F,
-        SparseNAryBlockTreeConfig<F>,
-        SparseNAryBlockTreeConfigGadget<F>,
+        BlockTreeConfig<Cfg>,
+        BlockTreeConfigGadget<Cfg>,
+        Cfg::F,
+        SparseNAryBlockTreeConfig<Cfg>,
+        SparseNAryBlockTreeConfigGadget<Cfg>,
     >,
 }
 
-impl<F: PrimeField + Absorb + Absorbable> AllocVar<UTXOProof<F>, F> for UTXOProofVar<F> {
-    fn new_variable<T: std::borrow::Borrow<UTXOProof<F>>>(
-        cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
+impl<Cfg: Init> AllocVar<UTXOProof<Cfg>, Cfg::F> for UTXOProofVar<Cfg> {
+    fn new_variable<T: std::borrow::Borrow<UTXOProof<Cfg>>>(
+        cs: impl Into<ark_relations::gr1cs::Namespace<Cfg::F>>,
         f: impl FnOnce() -> Result<T, SynthesisError>,
         mode: ark_r1cs_std::prelude::AllocationMode,
     ) -> Result<Self, SynthesisError> {
@@ -105,7 +105,7 @@ impl<F: PrimeField + Absorb + Absorbable> AllocVar<UTXOProof<F>, F> for UTXOProo
     }
 }
 
-impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
+impl<F: PrimeField + Absorb> UTXOVar<F> {
     // An input utxo is valid if:
     // 1. it exists in a shielded transaction tx
     // 2. the shielded transaction tx exists in a transation tree T^{tx} with root r^{tx}
@@ -115,21 +115,21 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
     // 6. nullifier is correct
     // 7. the user is the utxo owner (already checked)
     // 8.
-    pub fn is_valid(
+    pub fn is_valid<Cfg: Init<F = F>>(
         &self,
-        sk: &FpVar<F>,
-        nullifier: &NullifierVar<F>,
-        info: &UTXOInfoVar<F>,
-        proof: &UTXOProofVar<F>,
-        block_tree_root: &FpVar<F>,
-        plasma_blind_config: &PlasmaBlindConfigVar<F>,
+        sk: &FpVar<Cfg::F>,
+        nullifier: &NullifierVar<Cfg::F>,
+        info: &UTXOInfoVar<Cfg::F>,
+        proof: &UTXOProofVar<Cfg>,
+        block_tree_root: &FpVar<Cfg::F>,
+        plasma_blind_config: &PlasmaBlindConfigVar<Cfg>,
     ) -> Result<(), SynthesisError> {
         // checks only apply when the utxo is not zero
         let is_not_dummy = !&self.is_dummy;
 
         // 1. utxo exists in a shielded transaction tx
         let utxo_tree_root = plasma_blind_config.utxo_tree.recover_root(
-            &UTXOVarCRH::evaluate(&plasma_blind_config.utxo_crh_config, self)?,
+            &UTXOVarCRH::<Cfg>::evaluate(&plasma_blind_config.utxo_crh_config, self)?,
             &info.utxo_index.to_n_bits_le(SHIELDED_TX_TREE_HEIGHT - 1)?,
             &proof.utxo_inclusion_proof,
         )?;
@@ -144,7 +144,10 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
                 &is_not_dummy,
             )?
             .conditional_enforce_equal(&proof.block.tx_tree_root, &is_not_dummy)?;
-        proof.tx_inclusion_proof.index.enforce_equal(&info.tx_index)?;
+        proof
+            .tx_inclusion_proof
+            .index
+            .enforce_equal(&info.tx_index)?;
 
         // 3. the transaction tree T has been signed by the sender s
         proof
@@ -156,7 +159,10 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
                 &is_not_dummy,
             )?
             .conditional_enforce_equal(&proof.block.signer_tree_root, &is_not_dummy)?;
-        proof.signer_inclusion_proof.index.enforce_equal(&info.tx_index)?;
+        proof
+            .signer_inclusion_proof
+            .index
+            .enforce_equal(&info.tx_index)?;
 
         // 4. block is contained within the block tree
         proof
@@ -168,11 +174,14 @@ impl<F: PrimeField + Absorb + Absorbable> UTXOVar<F> {
                 &is_not_dummy,
             )?
             .conditional_enforce_equal(&block_tree_root, &is_not_dummy)?;
-        proof.block_inclusion_proof.index.enforce_equal(&info.block_height)?;
+        proof
+            .block_inclusion_proof
+            .index
+            .enforce_equal(&info.block_height)?;
 
         // 5. nullifier computation is correct
         nullifier.value.enforce_equal(&is_not_dummy.select(
-            &NullifierVar::new(&plasma_blind_config.griffin_config, sk, info)?.value,
+            &NullifierVar::new::<Cfg>(&plasma_blind_config.hash_config, sk, info)?.value,
             &FpVar::zero(),
         )?)?;
 

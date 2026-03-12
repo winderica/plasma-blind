@@ -1,68 +1,60 @@
-use ark_r1cs_std::eq::EqGadget;
-use ark_r1cs_std::prelude::Boolean;
-use ark_std::cmp::Ordering;
-use plasmablind_core::{
-    datastructures::{
-        shieldedtx::UTXOTree, signerlist::SparseNArySignerTree, txtree::SparseNAryTransactionTree,
-        TX_IO_SIZE,
-    },
-    primitives::crh::constraints::UTXOVarCRH,
-};
-use sonobe_primitives::algebra::ops::bits::ToBitsGadgetExt;
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
     crh::{CRHSchemeGadget, TwoToOneCRHScheme, TwoToOneCRHSchemeGadget},
     sponge::Absorb,
 };
-use ark_r1cs_std::alloc::AllocVar;
+use ark_r1cs_std::{
+    alloc::AllocVar,
+    cmp::CmpGadget,
+    eq::EqGadget,
+    fields::{fp::FpVar, FieldVar},
+    prelude::Boolean,
+    uint64::UInt64,
+};
+use ark_std::cmp::Ordering;
 use plasmablind_core::{
     config::{PlasmaBlindConfig, PlasmaBlindConfigVar},
-    datastructures::{block::BlockMetadata, utxo::UTXO},
-    primitives::{accumulator::constraints::Accumulator, crh::constraints::BlockTreeVarCRHGriffin},
+    datastructures::{
+        block::BlockMetadata, shieldedtx::UTXOTree, signerlist::SparseNArySignerTree,
+        txtree::SparseNAryTransactionTree, utxo::UTXO, TX_IO_SIZE,
+    },
+    primitives::crh::{
+        constraints::{BlockTreeVarCRH, UTXOVarCRH},
+        utils::Init,
+    },
 };
 use sonobe_fs::FoldingSchemeDef;
 use sonobe_ivc::compilers::cyclefold::FoldingSchemeCycleFoldExt;
-use sonobe_primitives::{circuits::FCircuit, commitments::VectorCommitmentDef};
+use sonobe_primitives::{
+    algebra::ops::bits::ToBitsGadgetExt, circuits::FCircuit, commitments::VectorCommitmentDef,
+};
 
-use crate::circuits::{
+use crate::balance::{
     balance_inputs::{BalanceAux, BalanceAuxVar},
     balance_state::{BalanceState, BalanceStateVar},
 };
 
-pub struct BalanceCircuit<
-    FS1: FoldingSchemeDef,
-    H: TwoToOneCRHScheme,
-    HG: TwoToOneCRHSchemeGadget<H, FS1::TranscriptField>,
-    A: Accumulator<FS1::TranscriptField, H, HG>,
-> {
-    pub config: PlasmaBlindConfig<FS1::TranscriptField>,
-    pub acc_pp: HG::ParametersVar, // public parameters for the accumulator might not be poseidon
-    pub _r: PhantomData<(H, A)>,
+pub struct BalanceCircuit<Cfg: Init> {
+    pub config: PlasmaBlindConfig<Cfg>,
 }
 
-impl<
-        FS1: FoldingSchemeCycleFoldExt<1, 1, TranscriptField: Absorb>,
-        H: TwoToOneCRHScheme,
-        HG: TwoToOneCRHSchemeGadget<H, FS1::TranscriptField>,
-        A: Accumulator<FS1::TranscriptField, H, HG>,
-    > FCircuit for BalanceCircuit<FS1, H, HG, A>
-{
-    type Field = <FS1::VC as VectorCommitmentDef>::Scalar;
-    type State = BalanceState<FS1>;
-    type StateVar = BalanceStateVar<FS1>;
-    type ExternalInputs = BalanceAux<FS1>;
-    type ExternalOutputs = PhantomData<FS1>;
+impl<Cfg: Init> FCircuit for BalanceCircuit<Cfg> {
+    type Field = Cfg::F;
+    type State = BalanceState<Cfg::F>;
+    type StateVar = BalanceStateVar<Cfg::F>;
+    type ExternalInputs = BalanceAux<Cfg>;
+    type ExternalOutputs = ();
 
     fn dummy_state(&self) -> Self::State {
         BalanceState {
-            balance: FS1::TranscriptField::default(),
-            nonce: FS1::TranscriptField::default(),
-            pk: FS1::TranscriptField::from(42),
-            acc: FS1::TranscriptField::default(),
-            block_hash: FS1::TranscriptField::default(),
-            block_number: FS1::TranscriptField::default(),
-            processed_tx_index: FS1::TranscriptField::default(),
+            balance: Default::default(),
+            nonce: Default::default(),
+            pk: Default::default(),
+            acc: Default::default(),
+            block_hash: Default::default(),
+            block_number: Default::default(),
+            processed_tx_index: Default::default(),
         }
     }
 
@@ -70,34 +62,31 @@ impl<
         let dummy_tx_tree = SparseNAryTransactionTree::blank(
             &self.config.tx_tree_leaf_config,
             &self.config.tx_tree_n_to_one_config,
-            &FS1::TranscriptField::default(),
+            &Default::default(),
         )
         .unwrap();
         let dummy_shielded_tx_inclusion_proof = dummy_tx_tree.generate_proof(1).unwrap();
         let dummy_signer_tree = SparseNArySignerTree::blank(
             &self.config.signer_tree_leaf_config,
             &self.config.signer_tree_n_to_one_config,
-            &FS1::TranscriptField::default(),
+            &Default::default(),
         )
         .unwrap();
         let dummy_signer_inclusion_proof = dummy_signer_tree.generate_proof(0).unwrap();
         let block = BlockMetadata {
             tx_tree_root: dummy_tx_tree.root,
             signer_tree_root: dummy_signer_tree.root,
-            nullifier_tree_root: FS1::TranscriptField::default(),
+            nullifier_tree_root: Default::default(),
             height: 0,
         };
-        let dummy_utxo_tree = UTXOTree::blank(&(), &self.config.poseidon_config);
+        let dummy_utxo_tree = UTXOTree::blank(&(), &self.config.hash_config);
         let dummy_utxo_proof = dummy_utxo_tree.generate_membership_proof(0).unwrap();
         BalanceAux {
             block,
-            from: FS1::TranscriptField::from(1),
-            utxo_tree_root: FS1::TranscriptField::default(),
-            shielded_tx_utxos: vec![UTXO::dummy()],
-            shielded_tx_utxos_proofs: vec![
-                (dummy_utxo_proof, FS1::TranscriptField::default());
-                TX_IO_SIZE
-            ],
+            from: From::from(1),
+            utxo_tree_root: Default::default(),
+            shielded_tx_utxos: vec![UTXO::dummy(); TX_IO_SIZE],
+            shielded_tx_utxos_proofs: vec![(dummy_utxo_proof, Default::default()); TX_IO_SIZE],
             openings_mask: vec![false; TX_IO_SIZE],
             shielded_tx_inclusion_proof: dummy_shielded_tx_inclusion_proof,
             signer_pk_inclusion_proof: dummy_signer_inclusion_proof,
@@ -138,39 +127,30 @@ impl<
 
         // compute block hash and update accumulator value
         let next_block_hash =
-            BlockTreeVarCRHGriffin::evaluate(&config_var.block_tree_leaf_config, &block)?;
-        let next_acc = A::update(&self.acc_pp, &acc, &block_hash)?;
+            BlockTreeVarCRH::<Cfg>::evaluate(&config_var.block_tree_leaf_config, &block)?;
+        let next_acc =
+            Cfg::HGadget::evaluate(&config_var.hash_config, &[acc.clone(), block_hash.clone()])?;
 
         // ensure the current processed block number is equal or greater than the previous block
-        let next_block_number = block.height.to_fp()?;
-        (&next_block_number - block_number).to_n_bits_le(64)?;
+        let next_block_number = block.height;
+        (&next_block_number.to_fp()? - block_number.to_fp()?).to_n_bits_le(64)?;
 
         // ensure that the processed tx has greater tx index (when processing same block)
-        let next_tx_index = shielded_tx_inclusion_proof.index.clone();
-        let is_same_block = next_block_hash.is_eq(&block_hash)?;
-        let is_higher_tx_index =
-            &next_tx_index.is_cmp(&processed_tx_index, Ordering::Greater, false)?;
-        is_higher_tx_index.conditional_enforce_equal(&Boolean::Constant(true), &is_same_block)?;
+        let (next_tx_index, rest) = UInt64::from_fp(&shielded_tx_inclusion_proof.index)?;
+        rest.enforce_equal(&FpVar::zero())?;
+        let is_different_block = next_block_hash.is_neq(&block_hash)?;
+        let is_higher_tx_index = next_tx_index.is_gt(&processed_tx_index)?;
+        (is_different_block | is_higher_tx_index).enforce_equal(&Boolean::TRUE)?;
 
         // check that shielded tx is in tx tree
         shielded_tx_inclusion_proof
-            .verify_membership(
-                &(),
-                &config_var.tx_tree_n_to_one_config,
-                &block.tx_tree_root,
-                &utxo_tree_root,
-            )?
-            .enforce_equal(&Boolean::constant(true))?;
+            .calculate_root(&(), &config_var.tx_tree_n_to_one_config, &utxo_tree_root)?
+            .enforce_equal(&block.tx_tree_root)?;
 
         // check that the signer bit is 1 for the corresponding transaction (i.e. pk is included)
         signer_pk_inclusion_proof
-            .verify_membership(
-                &(),
-                &config_var.signer_tree_n_to_one_config,
-                &block.signer_tree_root,
-                &from,
-            )?
-            .enforce_equal(&Boolean::Constant(true))?;
+            .calculate_root(&(), &config_var.signer_tree_n_to_one_config, &from)?
+            .enforce_equal(&block.signer_tree_root)?;
 
         // validity of input utxos is already checked by the transaction validity circuit and the
         // aggregator, so we only need to process the output utxos?
@@ -188,7 +168,7 @@ impl<
         {
             let is_in_tree = config_var.utxo_tree.is_at_index(
                 &utxo_tree_root,
-                &UTXOVarCRH::evaluate(&config_var.utxo_crh_config, &utxo)?,
+                &UTXOVarCRH::<Cfg>::evaluate(&config_var.utxo_crh_config, &utxo)?,
                 &utxo_proof.1,
                 &utxo_proof.0,
             )?;
@@ -212,7 +192,7 @@ impl<
                 block_number: next_block_number,
                 processed_tx_index: next_tx_index,
             },
-            PhantomData::<FS1>,
+            (),
         ))
     }
 }
@@ -222,12 +202,16 @@ pub mod tests {
 
     use std::{collections::BTreeMap, sync::Arc};
 
-    use ark_bn254::Fr;
-    use ark_crypto_primitives::crh::{
-        poseidon::{constraints::CRHParametersVar, CRH},
-        CRHScheme,
+    use ark_bn254::{Fr, G1Projective as C1};
+    use ark_crypto_primitives::{
+        crh::{
+            poseidon::{constraints::CRHParametersVar, CRH},
+            CRHScheme,
+        },
+        sponge::poseidon::PoseidonConfig,
     };
     use ark_ff::{Field, UniformRand, Zero};
+    use ark_grumpkin::Projective as C2;
     use ark_r1cs_std::alloc::{AllocVar, AllocationMode};
     use ark_relations::gr1cs::ConstraintSystem;
     use ark_std::test_rng;
@@ -244,37 +228,24 @@ pub mod tests {
             TX_IO_SIZE,
         },
         primitives::{
-            accumulator::constraints::PoseidonAccumulatorVar,
-            crh::{
-                poseidon_canonical_config,
-                utils::{
-                    initialize_griffin_config, initialize_n_to_one_config_griffin,
-                    initialize_poseidon_config, initialize_two_to_one_binary_tree_poseidon_config,
-                },
-                BlockTreeCRHGriffin, IntervalCRH, UTXOCRH,
-            },
+            crh::{poseidon_canonical_config, utils::Init, BlockTreeCRH, IntervalCRH, UTXOCRH},
             sparsemt::MerkleSparseTree,
         },
     };
+    use sonobe_fs::{nova::Nova, ova::CycleFoldOva};
     use sonobe_ivc::{compilers::cyclefold::CycleFoldBasedIVC, IVCStatefulProver, IVC};
     use sonobe_primitives::{
         commitments::pedersen::Pedersen,
         transcripts::griffin::{sponge::GriffinSponge, GriffinParams},
     };
 
-    use crate::circuits::{
+    use crate::balance::{
         balance_inputs::{BalanceAux, BalanceAuxVar},
         balance_state::{BalanceState, BalanceStateVar},
         circuit::BalanceCircuit,
     };
 
-    use sonobe_fs::{nova::Nova, ova::CycleFoldOva};
-
-    use ark_bn254::G1Projective as C1;
-    use ark_grumpkin::Projective as C2;
-
-    #[test]
-    pub fn test_balance_proving_step() {
+    pub fn test_balance_proving_step_opt<Cfg: Init<F = Fr>>() {
         type FS1 = Nova<Pedersen<C1, true>>;
         type FS2 = CycleFoldOva<Pedersen<C2, true>>;
         type T = GriffinSponge<Fr>;
@@ -282,31 +253,23 @@ pub mod tests {
         let mut rng = test_rng();
         let pp = poseidon_canonical_config::<Fr>();
 
-        // initialize our plasma blind config
-        // poseidon crh only for now, should be configurable in the future
-        let two_to_one_poseidon_config = initialize_two_to_one_binary_tree_poseidon_config::<Fr>();
-        let poseidon_config = initialize_poseidon_config::<Fr>();
-        let griffin_config = initialize_griffin_config::<Fr>();
+        let hash_config = Cfg::init::<2>();
 
-        let utxo_crh_config = UTXOCRH::setup(&mut rng).unwrap();
+        let utxo_crh_config = UTXOCRH::<Cfg>::setup(&mut rng).unwrap();
         let shielded_tx_leaf_config = ();
         let tx_tree_leaf_config = ();
         let signer_tree_leaf_config = ();
-        let nullifier_tree_leaf_config = IntervalCRH::setup(&mut rng).unwrap();
-        let block_tree_leaf_config = BlockTreeCRHGriffin::setup(&mut rng).unwrap();
+        let nullifier_tree_leaf_config = IntervalCRH::<Cfg>::setup(&mut rng).unwrap();
+        let block_tree_leaf_config = BlockTreeCRH::<Cfg>::setup(&mut rng).unwrap();
 
-        let shielded_tx_two_to_one_config = two_to_one_poseidon_config.clone();
-        let nullifier_tree_two_to_one_config = two_to_one_poseidon_config.clone();
-        let block_tree_n_to_one_config =
-            initialize_n_to_one_config_griffin::<BLOCK_TREE_ARITY, Fr>();
-        let tx_tree_n_to_one_config =
-            initialize_n_to_one_config_griffin::<TRANSACTION_TREE_ARITY, Fr>();
-        let signer_tree_n_to_one_config =
-            initialize_n_to_one_config_griffin::<SIGNER_TREE_ARITY, Fr>();
+        let shielded_tx_two_to_one_config = Cfg::init::<2>();
+        let nullifier_tree_two_to_one_config = Cfg::init::<2>();
+        let block_tree_n_to_one_config = Cfg::init::<BLOCK_TREE_ARITY>();
+        let tx_tree_n_to_one_config = Cfg::init::<TRANSACTION_TREE_ARITY>();
+        let signer_tree_n_to_one_config = Cfg::init::<SIGNER_TREE_ARITY>();
 
         let config = PlasmaBlindConfig::new(
-            poseidon_config.clone(),
-            griffin_config.clone(),
+            hash_config.clone(),
             utxo_crh_config,
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
@@ -321,22 +284,21 @@ pub mod tests {
         );
 
         let sender_sk = Fr::rand(&mut rng);
-        let sender_pk = CRH::evaluate(&config.poseidon_config, vec![sender_sk]).unwrap();
+        let sender_pk = Cfg::H::evaluate(&config.hash_config, vec![sender_sk]).unwrap();
         let receiver_sk = Fr::rand(&mut rng);
-        let receiver_pk = CRH::evaluate(&config.poseidon_config, vec![receiver_sk]).unwrap();
+        let receiver_pk = Cfg::H::evaluate(&config.hash_config, vec![receiver_sk]).unwrap();
+        let mut outputs = [Default::default(); TX_IO_SIZE];
+        for i in 0..TX_IO_SIZE - 1 {
+            outputs[i] = UTXO::new(sender_pk, 10, Fr::rand(&mut rng));
+        }
+        outputs[TX_IO_SIZE - 1] = UTXO::new(receiver_pk, 10, Fr::rand(&mut rng));
         let tx = TransparentTransaction {
             inputs: [UTXO::new(sender_pk, 10, Fr::rand(&mut rng)); TX_IO_SIZE],
             inputs_info: [Default::default(); TX_IO_SIZE],
-            // TODO: use also TX_IO_SIZE here, not sure how yet
-            outputs: [
-                UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
-                UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
-                UTXO::new(sender_pk, 10, Fr::rand(&mut rng)),
-                UTXO::new(receiver_pk, 10, Fr::rand(&mut rng)),
-            ],
+            outputs,
         };
         let shielded_tx = ShieldedTransaction::new(
-            &config.griffin_config,
+            &config.hash_config,
             &config.utxo_crh_config,
             &sender_sk,
             &tx,
@@ -370,7 +332,7 @@ pub mod tests {
             nullifier_tree_root: Fr::default(),
             height: 1,
         };
-        let shielded_tx_utxos_proofs = (0..4)
+        let shielded_tx_utxos_proofs = (0..TX_IO_SIZE)
             .map(|idx| {
                 (
                     utxo_tree.generate_membership_proof(idx).unwrap(),
@@ -380,31 +342,26 @@ pub mod tests {
             .collect::<Vec<_>>();
         let shielded_tx_inclusion_proof = transaction_tree.generate_proof(1).unwrap();
         let signer_inclusion_proof = signer_tree.generate_proof(1).unwrap();
-        let sender_aux = BalanceAux::<FS1> {
+        let mut sender_aux = BalanceAux::<Cfg> {
             block,
             from: sender_pk,
             utxo_tree_root: utxo_tree.root(),
             shielded_tx_utxos: tx.outputs.to_vec(), // only outputs are processed
             shielded_tx_utxos_proofs,
-            openings_mask: vec![true; 4],
+            openings_mask: vec![true; TX_IO_SIZE],
             shielded_tx_inclusion_proof,
             signer_pk_inclusion_proof: signer_inclusion_proof,
         };
 
-        let cs = ConstraintSystem::new_ref();
-        let sender_aux_var =
-            BalanceAuxVar::new_variable(cs.clone(), || Ok(sender_aux), AllocationMode::Witness)
-                .unwrap();
-
-        let cur_balance = Fr::from(47);
+        let cur_balance = 10000000;
         let cur_nonce = Fr::from(11);
         let pk = sender_pk;
         let cur_acc = Fr::from(13);
         let cur_block_hash = Fr::from(42);
-        let cur_block_num = Fr::from(0);
-        let cur_tx_index = Fr::from(0);
+        let cur_block_num = 0;
+        let cur_tx_index = 0;
 
-        let z_i = BalanceState::<FS1> {
+        let z_i = BalanceState {
             balance: cur_balance,
             nonce: cur_nonce,
             pk,
@@ -413,16 +370,8 @@ pub mod tests {
             block_number: cur_block_num,
             processed_tx_index: cur_tx_index,
         };
-        //let z_i_var =
-        //    BalanceStateVar::new_variable(cs.clone(), || Ok(z_i), AllocationMode::Witness).unwrap();
 
-        let pp_var = CRHParametersVar::new_constant(cs.clone(), &pp).unwrap();
-
-        let circuit = BalanceCircuit::<FS1, _, _, PoseidonAccumulatorVar<Fr>> {
-            config,
-            acc_pp: pp_var,
-            _r: std::marker::PhantomData,
-        };
+        let circuit = BalanceCircuit { config };
 
         let mut rng1 = test_rng();
         let hash_config = Arc::new(GriffinParams::new(16, 5, 9));
@@ -433,8 +382,28 @@ pub mod tests {
         .unwrap();
         let (pk, vk) = CycleFoldBasedIVC::<FS1, FS2, T>::generate_keys(pp, &circuit).unwrap();
 
-        let ivc_client =
+        let mut prover =
             IVCStatefulProver::<_, CycleFoldBasedIVC<FS1, FS2, T>>::new(&pk, &circuit, z_i)
                 .unwrap();
+
+        for _ in 0..10 {
+            prover.prove_step(sender_aux.clone(), &mut rng).unwrap();
+            sender_aux.block.height += 1;
+        }
+
+        CycleFoldBasedIVC::<FS1, FS2, T>::verify::<BalanceCircuit<Cfg>>(
+            &vk,
+            prover.i,
+            &prover.initial_state,
+            &prover.current_state,
+            &prover.current_proof,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_balance_proving_step() {
+        test_balance_proving_step_opt::<PoseidonConfig<Fr>>();
+        test_balance_proving_step_opt::<GriffinParams<Fr>>();
     }
 }

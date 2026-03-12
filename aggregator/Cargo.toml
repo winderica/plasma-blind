@@ -23,3 +23,9 @@ nmerkle-trees = { workspace = true }
 [dev-dependencies]
 ark-bn254 = { workspace = true, features = ["curve", "r1cs"] }
 ark-grumpkin = { workspace = true, features = ["r1cs"] }
+client = { path = "../client" }
+criterion = { workspace = true }
+
+[[bench]]
+name = "aggregator_bench"
+harness = false

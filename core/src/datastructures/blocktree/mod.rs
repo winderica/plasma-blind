@@ -15,8 +15,7 @@ use std::marker::PhantomData;
 use crate::{
     datastructures::block::BlockMetadata,
     primitives::{
-        crh::BlockTreeCRHGriffin,
-        sparsemt::MerkleSparseTree,
+        crh::{BlockTreeCRH, NTo1CRH, utils::Init}, sparsemt::MerkleSparseTree
     },
 };
 
@@ -28,33 +27,45 @@ pub type SparseNAryBlockTree<F> =
 
 // pub const BLOCK_TREE_HEIGHT: usize = 25;
 pub const BLOCK_TREE_ARITY: usize = 4;
-pub const NARY_BLOCK_TREE_HEIGHT: u64 = 6;
+pub const NARY_BLOCK_TREE_HEIGHT: u64 = match option_env!("BLOCK_TREE_HEIGHT") {
+    Some(s) => {
+        let bytes = s.as_bytes();
+        let mut result: u64 = 0;
+        let mut i = 0;
+        while i < bytes.len() {
+            result = result * 10 + (bytes[i] - b'0') as u64;
+            i += 1;
+        }
+        result
+    }
+    None => 6,
+};
 
 #[derive(Default, Clone, Debug)]
-pub struct BlockTreeConfig<F> {
-    _f: PhantomData<F>,
+pub struct BlockTreeConfig<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct SparseNAryBlockTreeConfig<F> {
-    _f: PhantomData<F>,
+pub struct SparseNAryBlockTreeConfig<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: Absorb + PrimeField + Absorbable> NArySparseConfig<BlockTreeConfig<F>>
-    for SparseNAryBlockTreeConfig<F>
+impl<Cfg: Init> NArySparseConfig<BlockTreeConfig<Cfg>>
+    for SparseNAryBlockTreeConfig<Cfg>
 {
-    type NToOneHashParams = GriffinParams<F>;
-    type NToOneHash = GriffinSponge<F>;
+    type NToOneHashParams = Cfg;
+    type NToOneHash = Cfg::H;
     const HEIGHT: u64 = NARY_BLOCK_TREE_HEIGHT;
 }
 
-impl<F: Absorb + PrimeField + Absorbable> Config for BlockTreeConfig<F> {
-    type Leaf = BlockMetadata<F>;
-    type LeafDigest = F;
-    type LeafInnerDigestConverter = IdentityDigestConverter<F>;
-    type InnerDigest = F;
-    type LeafHash = BlockTreeCRHGriffin<F>;
-    type TwoToOneHash = TwoToOneCRH<F>;
+impl<Cfg: Init> Config for BlockTreeConfig<Cfg> {
+    type Leaf = BlockMetadata<Cfg::F>;
+    type LeafDigest = Cfg::F;
+    type LeafInnerDigestConverter = IdentityDigestConverter<Cfg::F>;
+    type InnerDigest = Cfg::F;
+    type LeafHash = BlockTreeCRH<Cfg>;
+    type TwoToOneHash = NTo1CRH<Cfg, 2>;
 }
 
 //impl<F: Absorb + PrimeField + Absorbable> SparseConfig for BlockTreeConfig<F> {

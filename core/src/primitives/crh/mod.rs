@@ -13,20 +13,18 @@ use ark_crypto_primitives::{
 use ark_ec::{AdditiveGroup, AffineRepr, CurveGroup};
 use ark_ff::{Field, FpConfig, PrimeField, Zero};
 use ark_r1cs_std::{GR1CSVar, groups::CurveVar};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::rand::Rng;
 use sonobe_primitives::transcripts::{
     Absorbable,
     griffin::{GriffinParams, sponge::GriffinSponge},
-};
-use utils::{
-    initialize_blockcrh_config, initialize_blockcrh_config_griffin, initialize_publickeycrh_config, initialize_utxocrh_config_griffin,
 };
 
 use crate::{
     datastructures::{
         block::BlockMetadata, keypair::PublicKey, noncemap::Nonce, nullifier::Nullifier, utxo::UTXO,
     },
-    primitives::crh::utils::initialize_two_to_one_binary_tree_poseidon_config,
+    primitives::crh::utils::Init,
 };
 
 pub mod constraints;
@@ -84,17 +82,17 @@ impl<F: PrimeField> CRHScheme for IdentityCRH<F> {
     }
 }
 
-pub struct IntervalCRH<F> {
-    _f: PhantomData<F>,
+pub struct IntervalCRH<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> CRHScheme for IntervalCRH<F> {
-    type Input = (F, F);
-    type Output = F;
-    type Parameters = PoseidonConfig<F>;
+impl<Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize> CRHScheme for IntervalCRH<Cfg> {
+    type Input = (Cfg::F, Cfg::F);
+    type Output = Cfg::F;
+    type Parameters = Cfg;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        Ok(initialize_two_to_one_binary_tree_poseidon_config())
+        Ok(Cfg::init::<2>())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -102,21 +100,25 @@ impl<F: PrimeField + Absorb> CRHScheme for IntervalCRH<F> {
         input: T,
     ) -> Result<Self::Output, Error> {
         let (l, r) = input.borrow();
-        CRH::evaluate(parameters, [*l, *r])
+        Cfg::H::evaluate(parameters, [*l, *r])
     }
 }
 
-pub struct PublicKeyCRH<C: CurveGroup> {
-    _c: PhantomData<C>,
+pub struct PublicKeyCRH<Cfg, C: CurveGroup> {
+    _c: PhantomData<(C, Cfg)>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for PublicKeyCRH<C> {
+impl<
+    Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize,
+    C: CurveGroup<BaseField = Cfg::F>,
+> CRHScheme for PublicKeyCRH<Cfg, C>
+{
     type Input = PublicKey<C>;
     type Output = C::BaseField;
-    type Parameters = PoseidonConfig<C::BaseField>;
+    type Parameters = Cfg;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        Ok(initialize_publickeycrh_config())
+        Ok(Cfg::init::<3>())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -126,7 +128,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for PublicKeyCRH<C
         let input: &PublicKey<C> = input.borrow();
         let point = input.key.into_affine();
         if point.is_zero() {
-            Ok(CRH::evaluate(
+            Ok(Cfg::H::evaluate(
                 parameters,
                 // flag for point is zero is true
                 [C::BaseField::ZERO, C::BaseField::ZERO, C::BaseField::ONE],
@@ -134,7 +136,7 @@ impl<C: CurveGroup<BaseField: PrimeField + Absorb>> CRHScheme for PublicKeyCRH<C
         } else {
             let (x, y) = point.xy().unwrap();
             // flag for point is zero is false
-            Ok(CRH::evaluate(parameters, [x, y, C::BaseField::ZERO])?)
+            Ok(Cfg::H::evaluate(parameters, [x, y, C::BaseField::ZERO])?)
         }
     }
 }
@@ -160,44 +162,18 @@ impl<F: PrimeField> CRHScheme for NullifierCRH<F> {
         Ok(nullifier.value)
     }
 }
-
-pub struct NonceCRH<F: PrimeField + Absorb> {
-    _f: PhantomData<F>,
+pub struct UTXOCRH<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> CRHScheme for NonceCRH<F> {
-    type Input = Nonce;
-    type Output = F;
-    type Parameters = PoseidonConfig<F>;
-
-    fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
-        // automatic generation of parameters are not implemented yet
-        // therefore, the developers must specify the parameters themselves
-        unimplemented!()
-    }
-
-    fn evaluate<T: Borrow<Self::Input>>(
-        parameters: &Self::Parameters,
-        input: T,
-    ) -> Result<Self::Output, Error> {
-        let nonce: &Nonce = input.borrow();
-        let input = F::from(nonce.0);
-        CRH::evaluate(parameters, [input])
-    }
-}
-
-pub struct UTXOCRH<F> {
-    _f: PhantomData<F>,
-}
-
-impl<F: PrimeField + Absorb + Absorbable> CRHScheme for UTXOCRH<F> {
-    type Input = UTXO<F>;
-    type Output = F;
-    type Parameters = GriffinParams<F>;
+impl<Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize> CRHScheme for UTXOCRH<Cfg> {
+    type Input = UTXO<Cfg::F>;
+    type Output = Cfg::F;
+    type Parameters = Cfg;
 
     fn setup<R: Rng>(_rng: &mut R) -> Result<Self::Parameters, Error> {
         // WARNING: this config should be checked and not used in production as is
-        Ok(initialize_utxocrh_config_griffin())
+        Ok(Cfg::init::<4>())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -206,58 +182,29 @@ impl<F: PrimeField + Absorb + Absorbable> CRHScheme for UTXOCRH<F> {
     ) -> Result<Self::Output, Error> {
         let utxo: &UTXO<_> = input.borrow();
         let input = [
-            F::from(utxo.amount),
-            F::from(utxo.is_dummy),
+            Cfg::F::from(utxo.amount),
+            Cfg::F::from(utxo.is_dummy),
             utxo.salt,
             utxo.pk,
         ];
-        GriffinSponge::evaluate(parameters, input)
+        Cfg::H::evaluate(parameters, input)
     }
 }
 
-pub struct BlockTreeCRH<F: PrimeField> {
-    _f: PhantomData<F>,
+pub struct BlockTreeCRH<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-pub struct BlockTreeCRHGriffin<F: PrimeField> {
-    _f: PhantomData<F>,
-}
-
-// identity hash
-impl<F: PrimeField + Absorbable> CRHScheme for BlockTreeCRHGriffin<F> {
-    type Input = BlockMetadata<F>;
-    type Output = F;
-    type Parameters = GriffinParams<F>;
+impl<Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize> CRHScheme
+    for BlockTreeCRH<Cfg>
+{
+    type Input = BlockMetadata<Cfg::F>;
+    type Output = Cfg::F;
+    type Parameters = Cfg;
 
     fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
         // WARNING: this config should be checked and not used in production as is
-        Ok(initialize_blockcrh_config_griffin())
-    }
-
-    fn evaluate<T: Borrow<Self::Input>>(
-        parameters: &Self::Parameters,
-        input: T,
-    ) -> Result<Self::Output, Error> {
-        let block = input.borrow();
-        let input = vec![
-            block.tx_tree_root,
-            block.signer_tree_root,
-            block.nullifier_tree_root,
-            F::from(block.height as u64),
-        ];
-        GriffinSponge::evaluate(parameters, input)
-    }
-}
-
-// identity hash
-impl<F: PrimeField + Absorb> CRHScheme for BlockTreeCRH<F> {
-    type Input = BlockMetadata<F>;
-    type Output = F;
-    type Parameters = PoseidonConfig<F>;
-
-    fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
-        // WARNING: this config should be checked and not used in production as is
-        Ok(initialize_blockcrh_config())
+        Ok(Cfg::init::<4>())
     }
 
     fn evaluate<T: Borrow<Self::Input>>(
@@ -269,9 +216,59 @@ impl<F: PrimeField + Absorb> CRHScheme for BlockTreeCRH<F> {
             block.tx_tree_root,
             block.signer_tree_root,
             block.nullifier_tree_root,
-            F::from(block.height as u64),
+            Cfg::F::from(block.height as u64),
         ];
-        CRH::evaluate(parameters, input)
+        Cfg::H::evaluate(parameters, input)
+    }
+}
+
+pub struct NTo1CRH<Cfg, const N: usize> {
+    _f: PhantomData<Cfg>,
+}
+
+impl<Cfg: Init, const N: usize> CRHScheme for NTo1CRH<Cfg, N> {
+    type Input = [Cfg::F];
+    type Output = Cfg::F;
+    type Parameters = Cfg;
+
+    fn setup<R: Rng>(_r: &mut R) -> Result<Self::Parameters, Error> {
+        // WARNING: this config should be checked and not used in production as is
+        Ok(Cfg::init::<N>())
+    }
+
+    fn evaluate<T: Borrow<Self::Input>>(
+        parameters: &Self::Parameters,
+        input: T,
+    ) -> Result<Self::Output, Error> {
+        Cfg::H::evaluate(parameters, input)
+    }
+}
+
+impl<Cfg: Init> TwoToOneCRHScheme for NTo1CRH<Cfg, 2> {
+    type Input = Cfg::F;
+
+    type Output = Cfg::F;
+
+    type Parameters = Cfg;
+
+    fn setup<R: Rng>(r: &mut R) -> Result<Self::Parameters, Error> {
+        Ok(Cfg::init::<2>())
+    }
+
+    fn evaluate<T: Borrow<Self::Input>>(
+        parameters: &Self::Parameters,
+        left_input: T,
+        right_input: T,
+    ) -> Result<Self::Output, Error> {
+        Cfg::H::evaluate(parameters, [*left_input.borrow(), *right_input.borrow()])
+    }
+
+    fn compress<T: Borrow<Self::Output>>(
+        parameters: &Self::Parameters,
+        left_input: T,
+        right_input: T,
+    ) -> Result<Self::Output, Error> {
+        Cfg::H::evaluate(parameters, [*left_input.borrow(), *right_input.borrow()])
     }
 }
 
@@ -311,14 +308,19 @@ pub mod tests {
                 PublicKeyVar::<Projective, GVar>::new_witness(cs.clone(), || Ok(public_key))
                     .unwrap();
 
-            let res1 = PublicKeyCRH::evaluate(&pp, public_key).unwrap();
-            let res2 = PublicKeyVarCRH::evaluate(&pp_var, &public_key_var).unwrap();
+            let res1 = PublicKeyCRH::<PoseidonConfig<_>, _>::evaluate(&pp, public_key).unwrap();
+            let res2 = PublicKeyVarCRH::<PoseidonConfig<_>, Projective, GVar>::evaluate(
+                &pp_var,
+                &public_key_var,
+            )
+            .unwrap();
 
             assert_eq!(res1, res2.value().unwrap());
 
             // random public key
             let random_pk = KeyPair::<Projective>::new(&mut rng).pk;
-            let random_pk_hash = PublicKeyCRH::evaluate(&pp, random_pk).unwrap();
+            let random_pk_hash =
+                PublicKeyCRH::<PoseidonConfig<_>, _>::evaluate(&pp, random_pk).unwrap();
             assert_ne!(random_pk_hash, res1);
         }
     }

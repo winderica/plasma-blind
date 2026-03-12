@@ -1,30 +1,36 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::{Duration, Instant}};
 
 use ark_crypto_primitives::sponge::Absorb;
 use ark_ff::{One, PrimeField, Zero};
 use ark_relations::gr1cs::ConstraintSystem;
-use ark_std::ops::Bound::{Excluded, Unbounded};
-use ark_std::rand::rngs::ThreadRng;
-use ark_std::rand::thread_rng;
-use ark_std::test_rng;
-use nmerkle_trees::sparse::NArySparsePath;
-use plasmablind_core::datastructures::shieldedtx::{ShieldedTransaction, UTXOTree};
-use plasmablind_core::datastructures::signerlist::SparseNArySignerTree;
-use plasmablind_core::datastructures::txtree::{
-    SparseNAryTransactionTree, SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY,
-    TransactionTreeConfig,
+use ark_std::{
+    ops::Bound::{Excluded, Unbounded},
+    rand::{rngs::ThreadRng, thread_rng},
+    test_rng,
 };
-use plasmablind_core::datastructures::nullifier::NullifierTree;
+use nmerkle_trees::sparse::NArySparsePath;
+use plasmablind_core::{datastructures::{
+    nullifier::NullifierTree,
+    shieldedtx::{ShieldedTransaction, UTXOTree},
+    signerlist::SparseNArySignerTree,
+    txtree::{
+        SparseNAryTransactionTree, SparseNAryTransactionTreeConfig, TRANSACTION_TREE_ARITY,
+        TransactionTreeConfig,
+    },
+}, primitives::crh::utils::Init};
 use sonobe_fs::{
     DeciderKey, FoldingInstance, FoldingSchemeGadgetOpsFull, FoldingSchemeGadgetOpsPartial,
     GroupBasedFoldingSchemeSecondary,
 };
-use sonobe_ivc::compilers::cyclefold::{CycleFoldBasedIVC, FoldingSchemeCycleFoldExt};
-use sonobe_ivc::{IVC, IVCStatefulProver};
-use sonobe_primitives::commitments::VectorCommitmentDef;
-use sonobe_primitives::traits::Dummy;
-use sonobe_primitives::traits::{CF1, SonobeCurve};
-use sonobe_primitives::transcripts::Transcript;
+use sonobe_ivc::{
+    IVC, IVCStatefulProver,
+    compilers::cyclefold::{CycleFoldBasedIVC, FoldingSchemeCycleFoldExt},
+};
+use sonobe_primitives::{
+    commitments::VectorCommitmentDef,
+    traits::{CF1, Dummy, SonobeCurve},
+    transcripts::Transcript,
+};
 
 use crate::circuits::{AggregatorCircuit, AggregatorCircuitExternalInputs, AggregatorCircuitState};
 
@@ -61,21 +67,22 @@ pub struct Aggregator<
             >,
         >,
     T: Transcript<CF1<<FS1::VC as VectorCommitmentDef>::Commitment>>,
+    Cfg: Init<F = FS1::TranscriptField>,
 > {
     pk: <CycleFoldBasedIVC<FS1, FS2, T> as IVC>::ProverKey<
-        AggregatorCircuit<T, FS1, FS2, ThreadRng>,
+        AggregatorCircuit<T, FS1, FS2, Cfg, ThreadRng>,
     >,
-    circuit: AggregatorCircuit<T, FS1, FS2, ThreadRng>,
+    circuit: AggregatorCircuit<T, FS1, FS2, Cfg, ThreadRng>,
 
     transactions: Vec<ShieldedTransaction<FS1::TranscriptField>>,
-    transaction_tree: SparseNAryTransactionTree<FS1::TranscriptField>,
+    transaction_tree: SparseNAryTransactionTree<Cfg>,
     transaction_validity_proofs: Vec<(FS1::RW, FS1::RU, FS1::IU, FS1::Proof<1, 1>)>,
 
     senders: Vec<FS1::TranscriptField>,
-    signer_tree: SparseNArySignerTree<FS1::TranscriptField>,
+    signer_tree: SparseNArySignerTree<Cfg>,
 
     nullifiers: BTreeMap<FS1::TranscriptField, (usize, usize)>,
-    nullifier_tree: NullifierTree<FS1::TranscriptField>,
+    nullifier_tree: NullifierTree<Cfg>,
 }
 
 impl<
@@ -109,12 +116,13 @@ impl<
             >,
         >,
     T: Transcript<CF1<<FS1::VC as VectorCommitmentDef>::Commitment>>,
-> Aggregator<FS1, FS2, T>
+    Cfg: Init<F = FS1::TranscriptField>,
+> Aggregator<FS1, FS2, T, Cfg>
 {
-    fn new(
-        circuit: AggregatorCircuit<T, FS1, FS2, ThreadRng>,
+    pub fn new(
+        circuit: AggregatorCircuit<T, FS1, FS2, Cfg, ThreadRng>,
         pk: <CycleFoldBasedIVC<FS1, FS2, T> as IVC>::ProverKey<
-            AggregatorCircuit<T, FS1, FS2, ThreadRng>,
+            AggregatorCircuit<T, FS1, FS2, Cfg, ThreadRng>,
         >,
     ) -> Self {
         let transaction_tree = SparseNAryTransactionTree::blank(
@@ -129,7 +137,7 @@ impl<
             &FS1::TranscriptField::default(),
         )
         .unwrap();
-        let mut nullifier_tree = NullifierTree::blank(
+        let mut nullifier_tree = NullifierTree::<Cfg>::blank(
             &circuit.config.nullifier_tree_leaf_config,
             &circuit.config.nullifier_tree_two_to_one_config,
         );
@@ -244,8 +252,8 @@ impl<
     ) -> Vec<
         NArySparsePath<
             TRANSACTION_TREE_ARITY,
-            TransactionTreeConfig<FS1::TranscriptField>,
-            SparseNAryTransactionTreeConfig<FS1::TranscriptField>,
+            TransactionTreeConfig<Cfg>,
+            SparseNAryTransactionTreeConfig<Cfg>,
         >,
     > {
         (0..self.transactions.len())
@@ -254,18 +262,16 @@ impl<
             .unwrap()
     }
 
-    pub fn process_transaction_validity_proofs(
-        &mut self,
+    /// Phase 1: Validate per-transaction Nova folding proofs and collect valid ones.
+    ///
+    /// Iterates over submitted proofs, checks nullifiers, verifies public inputs,
+    /// runs `FS1::verify` and `FS1::decide_running`, and returns the validated
+    /// proof set with their transaction indexes.
+    pub fn prepare_validity_proofs(
+        &self,
         proofs: Vec<Option<(FS1::RW, FS1::RU, FS1::IU, FS1::Proof<1, 1>)>>,
         block_root: FS1::TranscriptField,
-    ) -> (
-        usize,
-        AggregatorCircuitState<FS1, FS2>,
-        AggregatorCircuitState<FS1, FS2>,
-        <CycleFoldBasedIVC<FS1, FS2, T> as IVC>::Proof<AggregatorCircuit<T, FS1, FS2, ThreadRng>>,
-        FS1::RW,
-        FS2::RW,
-    ) {
+    ) -> (Vec<usize>, Vec<(FS1::RW, FS1::RU, FS1::IU, FS1::Proof<1, 1>)>) {
         let mut valid_indexes = vec![];
         let mut valid_proofs = vec![];
 
@@ -319,6 +325,26 @@ impl<
             valid_proofs.push((WW, U, u, pi));
         }
 
+        (valid_indexes, valid_proofs)
+    }
+
+    /// Phase 2: Run IVC aggregation over pre-validated proofs via CycleFoldBasedIVC.
+    ///
+    /// Takes the output of `prepare_validity_proofs` and composes the valid proofs
+    /// into a single aggregated proof using `IVCStatefulProver::prove_step`.
+    pub fn aggregate_validity_proofs(
+        &mut self,
+        valid_indexes: Vec<usize>,
+        valid_proofs: Vec<(FS1::RW, FS1::RU, FS1::IU, FS1::Proof<1, 1>)>,
+        block_root: FS1::TranscriptField,
+    ) -> (
+        usize,
+        AggregatorCircuitState<FS1, FS2>,
+        AggregatorCircuitState<FS1, FS2>,
+        <CycleFoldBasedIVC<FS1, FS2, T> as IVC>::Proof<AggregatorCircuit<T, FS1, FS2, Cfg, ThreadRng>>,
+        FS1::RW,
+        FS2::RW,
+    ) {
         let initial_state = AggregatorCircuitState::<FS1, FS2> {
             V: FS1::RU::dummy(self.circuit.dk1.to_arith_config()),
             cf_U: FS2::RU::dummy(self.circuit.dk2.to_arith_config()),
@@ -341,6 +367,10 @@ impl<
         let mut rng = thread_rng();
 
         let mut rng1 = test_rng();
+
+        let mut total_prove_step = Duration::ZERO;
+        let mut total_folding = Duration::ZERO;
+        let mut total_constraint = Duration::ZERO;
 
         for (i, (WW, U, u, pi)) in valid_proofs.into_iter().enumerate() {
             let tx_index = valid_indexes[i];
@@ -395,6 +425,7 @@ impl<
                 }
             }
 
+            let step_start = Instant::now();
             let external_outputs = prover
                 .prove_step(
                     AggregatorCircuitExternalInputs {
@@ -437,10 +468,34 @@ impl<
                     &mut rng1,
                 )
                 .unwrap();
+            let step_time = step_start.elapsed();
+            let ivc_overhead = step_time.saturating_sub(external_outputs.folding_time + external_outputs.constraint_time);
+            eprintln!(
+                "TIMING_CSV,step,{},{:.1},{:.1},{:.1},{:.1}",
+                i,
+                step_time.as_secs_f64() * 1000.0,
+                external_outputs.folding_time.as_secs_f64() * 1000.0,
+                external_outputs.constraint_time.as_secs_f64() * 1000.0,
+                ivc_overhead.as_secs_f64() * 1000.0,
+            );
+            total_prove_step += step_time;
+            total_folding += external_outputs.folding_time;
+            total_constraint += external_outputs.constraint_time;
+
             rng = external_outputs.rng;
             Y = external_outputs.YY;
             cf_W = external_outputs.cf_WW;
         }
+
+        let total_ivc_overhead = total_prove_step.saturating_sub(total_folding + total_constraint);
+        eprintln!(
+            "TIMING_CSV,total,{},{:.1},{:.1},{:.1},{:.1}",
+            valid_indexes.len(),
+            total_prove_step.as_secs_f64() * 1000.0,
+            total_folding.as_secs_f64() * 1000.0,
+            total_constraint.as_secs_f64() * 1000.0,
+            total_ivc_overhead.as_secs_f64() * 1000.0,
+        );
 
         (
             prover.i,
@@ -450,5 +505,26 @@ impl<
             Y,
             cf_W,
         )
+    }
+
+    /// Convenience method: runs both phases sequentially.
+    pub fn process_transaction_validity_proofs(
+        &mut self,
+        proofs: Vec<Option<(FS1::RW, FS1::RU, FS1::IU, FS1::Proof<1, 1>)>>,
+        block_root: FS1::TranscriptField,
+    ) -> (
+        usize,
+        AggregatorCircuitState<FS1, FS2>,
+        AggregatorCircuitState<FS1, FS2>,
+        <CycleFoldBasedIVC<FS1, FS2, T> as IVC>::Proof<AggregatorCircuit<T, FS1, FS2, Cfg, ThreadRng>>,
+        FS1::RW,
+        FS2::RW,
+    ) {
+        let now = Instant::now();
+        let (valid_indexes, valid_proofs) = self.prepare_validity_proofs(proofs, block_root);
+        let result = self.aggregate_validity_proofs(valid_indexes, valid_proofs, block_root);
+        println!("{:?}", now.elapsed());
+        println!("{}", self.transactions.len());
+        result
     }
 }

@@ -12,7 +12,7 @@ use sonobe_primitives::transcripts::{Absorbable, griffin::GriffinParams};
 use crate::{
     datastructures::{TX_IO_SIZE, nullifier::Nullifier},
     primitives::{
-        crh::{IdentityCRH, UTXOCRH},
+        crh::{IdentityCRH, NTo1CRH, UTXOCRH, utils::Init},
         sparsemt::{MerkleSparseTree, SparseConfig},
     },
 };
@@ -21,7 +21,9 @@ pub mod constraints;
 
 use super::transparenttx::TransparentTransaction;
 
-pub const SHIELDED_TX_TREE_HEIGHT: usize = 3; // 4 outputs
+// Binary tree height to accommodate TX_IO_SIZE leaves.
+// TX_IO_SIZE must be a power of 2.
+pub const SHIELDED_TX_TREE_HEIGHT: usize = (TX_IO_SIZE.trailing_zeros() + 1) as usize;
 
 // what's sent to the aggregator
 #[derive(Clone, Debug)]
@@ -30,10 +32,10 @@ pub struct ShieldedTransaction<F> {
     pub output_utxo_commitments: Vec<F>,
 }
 
-impl<F: Absorb + PrimeField + Absorbable> ShieldedTransaction<F> {
-    pub fn new(
-        nullifier_hash_config: &GriffinParams<F>,
-        utxo_hash_config: &GriffinParams<F>,
+impl<F: Absorb + PrimeField> ShieldedTransaction<F> {
+    pub fn new<Cfg: Init<F = F>>(
+        nullifier_hash_config: &Cfg,
+        utxo_hash_config: &Cfg,
         sk: &F,
         transparent_tx: &TransparentTransaction<F>,
     ) -> Result<Self, Error> {
@@ -46,7 +48,7 @@ impl<F: Absorb + PrimeField + Absorbable> ShieldedTransaction<F> {
                     if utxo.is_dummy {
                         Ok(Nullifier { value: F::zero() })
                     } else {
-                        Nullifier::new(nullifier_hash_config, *sk, info)
+                        Nullifier::new::<Cfg>(nullifier_hash_config, *sk, info)
                     }
                 })
                 .collect::<Result<_, _>>()?,
@@ -57,7 +59,7 @@ impl<F: Absorb + PrimeField + Absorbable> ShieldedTransaction<F> {
                     if i.is_dummy {
                         Ok(F::zero())
                     } else {
-                        UTXOCRH::evaluate(utxo_hash_config, i)
+                        UTXOCRH::<Cfg>::evaluate(utxo_hash_config, i)
                     }
                 })
                 .collect::<Result<Vec<_>, _>>()?,
@@ -74,22 +76,22 @@ impl<F: Default + Clone> Default for ShieldedTransaction<F> {
     }
 }
 
-pub type UTXOTree<F> = MerkleSparseTree<ShieldedTransactionConfig<F>>;
+pub type UTXOTree<Cfg> = MerkleSparseTree<ShieldedTransactionConfig<Cfg>>;
 
 #[derive(Clone, Debug)]
-pub struct ShieldedTransactionConfig<F> {
-    _f: PhantomData<F>,
+pub struct ShieldedTransactionConfig<Cfg> {
+    _cfg: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> Config for ShieldedTransactionConfig<F> {
-    type Leaf = F;
-    type LeafDigest = F;
-    type LeafInnerDigestConverter = IdentityDigestConverter<F>;
-    type InnerDigest = F;
-    type LeafHash = IdentityCRH<F>;
-    type TwoToOneHash = TwoToOneCRH<F>;
+impl<Cfg: Init> Config for ShieldedTransactionConfig<Cfg> {
+    type Leaf = Cfg::F;
+    type LeafDigest = Cfg::F;
+    type LeafInnerDigestConverter = IdentityDigestConverter<Cfg::F>;
+    type InnerDigest = Cfg::F;
+    type LeafHash = IdentityCRH<Cfg::F>;
+    type TwoToOneHash = NTo1CRH<Cfg, 2>;
 }
 
-impl<F: PrimeField + Absorb> SparseConfig for ShieldedTransactionConfig<F> {
+impl<Cfg: Init> SparseConfig for ShieldedTransactionConfig<Cfg> {
     const HEIGHT: usize = SHIELDED_TX_TREE_HEIGHT;
 }

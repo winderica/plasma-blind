@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use ark_crypto_primitives::{
     crh::poseidon::constraints::CRHParametersVar,
     sponge::{Absorb, poseidon::PoseidonConfig},
@@ -11,45 +13,42 @@ use sonobe_primitives::transcripts::{
 
 use crate::{
     datastructures::shieldedtx::constraints::UTXOTreeGadget,
-    primitives::sparsemt::constraints::MerkleSparseTreeGadget,
+    primitives::{crh::utils::Init, sparsemt::constraints::MerkleSparseTreeGadget},
 };
 
 #[derive(Clone)]
-pub struct PlasmaBlindConfig<F: PrimeField> {
-    pub poseidon_config: PoseidonConfig<F>, // poseidon config, used for both h(utxo) and h(sk)
-    pub griffin_config: GriffinParams<F>,
-    pub utxo_crh_config: GriffinParams<F>, // crh config for shielded_tx
-    pub shielded_tx_leaf_config: (),       // crh config for shielded_tx
-    pub shielded_tx_two_to_one_config: PoseidonConfig<F>, // 2-to-1 crh config for shielded_tx
-    pub tx_tree_leaf_config: (),           // crh config for tx tree
-    pub tx_tree_n_to_one_config: GriffinParams<F>, // 2-to-1 config for tx tree
-    pub signer_tree_leaf_config: (),       // crh config for signer tree
-    pub signer_tree_n_to_one_config: GriffinParams<F>, // 2-to-1 config for signer tree
-    pub nullifier_tree_leaf_config: PoseidonConfig<F>,
-    pub nullifier_tree_two_to_one_config: PoseidonConfig<F>,
-    pub block_tree_leaf_config: GriffinParams<F>, // crh config for block tree
-    pub block_tree_n_to_one_config: GriffinParams<F>, // 2-to-1 config for block tree
+pub struct PlasmaBlindConfig<Cfg: Init> {
+    pub hash_config: Cfg,
+    pub utxo_crh_config: Cfg,               // crh config for shielded_tx
+    pub shielded_tx_leaf_config: (),        // crh config for shielded_tx
+    pub shielded_tx_two_to_one_config: Cfg, // 2-to-1 crh config for shielded_tx
+    pub tx_tree_leaf_config: (),            // crh config for tx tree
+    pub tx_tree_n_to_one_config: Cfg,       // 2-to-1 config for tx tree
+    pub signer_tree_leaf_config: (),        // crh config for signer tree
+    pub signer_tree_n_to_one_config: Cfg,   // 2-to-1 config for signer tree
+    pub nullifier_tree_leaf_config: Cfg,
+    pub nullifier_tree_two_to_one_config: Cfg,
+    pub block_tree_leaf_config: Cfg,     // crh config for block tree
+    pub block_tree_n_to_one_config: Cfg, // 2-to-1 config for block tree
 }
 
-impl<F: PrimeField> PlasmaBlindConfig<F> {
+impl<Cfg: Init> PlasmaBlindConfig<Cfg> {
     pub fn new(
-        poseidon_config: PoseidonConfig<F>, // poseidon config, used for both h(utxo) and h(sk)
-        griffin_config: GriffinParams<F>,
-        utxo_crh_config: GriffinParams<F>, // crh config for shielded_tx
-        shielded_tx_leaf_config: (),       // crh config for shielded_tx
-        shielded_tx_two_to_one_config: PoseidonConfig<F>, // 2-to-1 crh config for shielded_tx
-        tx_tree_leaf_config: (),           // crh config for tx tree
-        tx_tree_n_to_one_config: GriffinParams<F>, // 2-to-1 config for tx tree
-        signer_tree_leaf_config: (),       // crh config for signer tree
-        signer_tree_n_to_one_config: GriffinParams<F>, // 2-to-1 config for signer tree
-        nullifier_tree_leaf_config: PoseidonConfig<F>,
-        nullifier_tree_two_to_one_config: PoseidonConfig<F>,
-        block_tree_leaf_config: GriffinParams<F>, // crh config for block tree
-        block_tree_n_to_one_config: GriffinParams<F>, // 2-to-1 config for block tree
+        hash_config: Cfg,
+        utxo_crh_config: Cfg,               // crh config for shielded_tx
+        shielded_tx_leaf_config: (),        // crh config for shielded_tx
+        shielded_tx_two_to_one_config: Cfg, // 2-to-1 crh config for shielded_tx
+        tx_tree_leaf_config: (),            // crh config for tx tree
+        tx_tree_n_to_one_config: Cfg,       // 2-to-1 config for tx tree
+        signer_tree_leaf_config: (),        // crh config for signer tree
+        signer_tree_n_to_one_config: Cfg,   // 2-to-1 config for signer tree
+        nullifier_tree_leaf_config: Cfg,
+        nullifier_tree_two_to_one_config: Cfg,
+        block_tree_leaf_config: Cfg,     // crh config for block tree
+        block_tree_n_to_one_config: Cfg, // 2-to-1 config for block tree
     ) -> Self {
         Self {
-            poseidon_config,
-            griffin_config,
+            hash_config,
             utxo_crh_config,
             shielded_tx_leaf_config,
             shielded_tx_two_to_one_config,
@@ -65,30 +64,26 @@ impl<F: PrimeField> PlasmaBlindConfig<F> {
     }
 }
 
-pub struct PlasmaBlindConfigVar<F: PrimeField + Absorb + Absorbable> {
-    pub poseidon_config: CRHParametersVar<F>, // poseidon config, used for both h(utxo) and h(sk)
-    pub griffin_config: GriffinParamsVar<F>,  // griffin config, used for both h(utxo) and h(sk)
-    pub utxo_crh_config: GriffinParamsVar<F>, // crh config for block hash
-    pub tx_tree_n_to_one_config: GriffinParamsVar<F>,
-    pub signer_tree_n_to_one_config: GriffinParamsVar<F>,
-    pub block_tree_leaf_config: GriffinParamsVar<F>,
-    pub block_tree_n_to_one_config: GriffinParamsVar<F>,
-    pub utxo_tree: UTXOTreeGadget<F>,
+pub struct PlasmaBlindConfigVar<Cfg: Init> {
+    pub hash_config: Cfg::Var,
+    pub utxo_crh_config: Cfg::Var, // crh config for block hash
+    pub tx_tree_n_to_one_config: Cfg::Var,
+    pub signer_tree_n_to_one_config: Cfg::Var,
+    pub block_tree_leaf_config: Cfg::Var,
+    pub block_tree_n_to_one_config: Cfg::Var,
+    pub utxo_tree: UTXOTreeGadget<Cfg>,
 }
 
-impl<F: PrimeField + Absorb + Absorbable> AllocVar<PlasmaBlindConfig<F>, F>
-    for PlasmaBlindConfigVar<F>
-{
-    fn new_variable<T: std::borrow::Borrow<PlasmaBlindConfig<F>>>(
-        cs: impl Into<ark_relations::gr1cs::Namespace<F>>,
+impl<Cfg: Init> AllocVar<PlasmaBlindConfig<Cfg>, Cfg::F> for PlasmaBlindConfigVar<Cfg> {
+    fn new_variable<T: std::borrow::Borrow<PlasmaBlindConfig<Cfg>>>(
+        cs: impl Into<ark_relations::gr1cs::Namespace<Cfg::F>>,
         f: impl FnOnce() -> Result<T, ark_relations::gr1cs::SynthesisError>,
         _mode: ark_r1cs_std::prelude::AllocationMode,
     ) -> Result<Self, ark_relations::gr1cs::SynthesisError> {
         let cs = cs.into().cs();
         let t = f()?;
         let config = t.borrow();
-        let poseidon_config = CRHParametersVar::new_constant(cs.clone(), &config.poseidon_config)?;
-        let griffin_config = GriffinParamsVar::new_constant(cs.clone(), &config.griffin_config)?;
+        let hash_config = Cfg::Var::new_constant(cs.clone(), &config.hash_config)?;
 
         let utxo_crh_config = AllocVar::new_constant(cs.clone(), &config.utxo_crh_config)?;
         let block_tree_leaf_config =
@@ -108,8 +103,7 @@ impl<F: PrimeField + Absorb + Absorbable> AllocVar<PlasmaBlindConfig<F>, F>
             AllocVar::new_constant(cs.clone(), &config.signer_tree_n_to_one_config)?;
 
         Ok(Self {
-            poseidon_config,
-            griffin_config,
+            hash_config,
             utxo_crh_config,
             block_tree_leaf_config,
             block_tree_n_to_one_config,

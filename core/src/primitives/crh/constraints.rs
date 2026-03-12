@@ -1,9 +1,8 @@
-use sonobe_primitives::transcripts::griffin::constraints::crh::GriffinParamsVar;
 use std::marker::PhantomData;
 
 use ark_crypto_primitives::{
     crh::{
-        CRHSchemeGadget,
+        CRHSchemeGadget, TwoToOneCRHSchemeGadget,
         poseidon::constraints::{CRHGadget, CRHParametersVar},
     },
     sponge::Absorb,
@@ -11,16 +10,20 @@ use ark_crypto_primitives::{
 use ark_ec::CurveGroup;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{fields::fp::FpVar, groups::CurveVar};
-use sonobe_primitives::transcripts::{Absorbable, griffin::sponge::GriffinSpongeVar};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use sonobe_primitives::transcripts::{
+    Absorbable,
+    griffin::{constraints::crh::GriffinParamsVar, sponge::GriffinSpongeVar},
+};
 
-use super::{BlockTreeCRH, BlockTreeCRHGriffin, NonceCRH, PublicKeyCRH, UTXOCRH};
+use super::{BlockTreeCRH, PublicKeyCRH, UTXOCRH};
 use crate::{
     datastructures::{
         block::constraints::BlockMetadataVar, keypair::constraints::PublicKeyVar,
         noncemap::constraints::NonceVar, nullifier::constraints::NullifierVar,
         utxo::constraints::UTXOVar,
     },
-    primitives::crh::{IdentityCRH, IntervalCRH, NullifierCRH},
+    primitives::crh::{IdentityCRH, IntervalCRH, NTo1CRH, NullifierCRH, utils::Init},
 };
 
 pub struct IdentityCRHGadget<F: PrimeField> {
@@ -40,76 +43,63 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<IdentityCRH<F>, F> for IdentityCRHG
     }
 }
 
-pub struct IntervalCRHGadget<F: PrimeField> {
-    _f: PhantomData<F>,
+pub struct IntervalCRHGadget<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> CRHSchemeGadget<IntervalCRH<F>, F> for IntervalCRHGadget<F> {
-    type InputVar = (FpVar<F>, FpVar<F>);
-    type OutputVar = FpVar<F>;
-    type ParametersVar = CRHParametersVar<F>;
+impl<Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize>
+    CRHSchemeGadget<IntervalCRH<Cfg>, Cfg::F> for IntervalCRHGadget<Cfg>
+{
+    type InputVar = (FpVar<Cfg::F>, FpVar<Cfg::F>);
+    type OutputVar = FpVar<Cfg::F>;
+    type ParametersVar = Cfg::Var;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        CRHGadget::evaluate(parameters, &[input.0.clone(), input.1.clone()])
-    }
-}
-
-pub struct ShieldedTransactionVarCRH<C, CVar> {
-    _c: PhantomData<C>,
-    _cvar: PhantomData<CVar>,
-}
-
-pub struct NonceVarCRH<F: PrimeField> {
-    _f: PhantomData<F>,
-}
-
-impl<F: PrimeField + Absorb> CRHSchemeGadget<NonceCRH<F>, F> for NonceVarCRH<F> {
-    type InputVar = NonceVar<F>;
-    type OutputVar = FpVar<F>;
-    type ParametersVar = CRHParametersVar<F>;
-
-    fn evaluate(
-        parameters: &Self::ParametersVar,
-        input: &Self::InputVar,
-    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        CRHGadget::evaluate(parameters, [input.to_fp()?].as_slice())
+        Cfg::HGadget::evaluate(parameters, &[input.0.clone(), input.1.clone()])
     }
 }
 
 pub struct PublicKeyVarCRH<
-    C: CurveGroup<BaseField: PrimeField + Absorb>,
+    Cfg,
+    C: CurveGroup<BaseField: PrimeField>,
     CVar: CurveVar<C, C::BaseField>,
 > {
-    _c: PhantomData<C>,
-    _c1: PhantomData<CVar>,
+    _c: PhantomData<(Cfg, C, CVar)>,
 }
 
-impl<C: CurveGroup<BaseField: PrimeField + Absorb>, CVar: CurveVar<C, C::BaseField>>
-    CRHSchemeGadget<PublicKeyCRH<C>, C::BaseField> for PublicKeyVarCRH<C, CVar>
+impl<
+    Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize,
+    C: CurveGroup<BaseField = Cfg::F>,
+    CVar: CurveVar<C, C::BaseField>,
+> CRHSchemeGadget<PublicKeyCRH<Cfg, C>, C::BaseField> for PublicKeyVarCRH<Cfg, C, CVar>
 {
     type InputVar = PublicKeyVar<C, CVar>;
     type OutputVar = FpVar<C::BaseField>;
-    type ParametersVar = CRHParametersVar<C::BaseField>;
+    type ParametersVar = Cfg::Var;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
         let key = input.key.to_constraint_field()?;
-        CRHGadget::evaluate(parameters, &key)
+        Cfg::HGadget::evaluate(parameters, &key)
     }
 }
 
 #[derive(Default)]
-pub struct UTXOVarCRH {}
+pub struct UTXOVarCRH<Cfg> {
+    _f: PhantomData<Cfg>,
+}
 
-impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<UTXOCRH<F>, F> for UTXOVarCRH {
-    type InputVar = UTXOVar<F>;
-    type OutputVar = FpVar<F>;
-    type ParametersVar = GriffinParamsVar<F>;
+impl<Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize>
+    CRHSchemeGadget<UTXOCRH<Cfg>, Cfg::F> for UTXOVarCRH<Cfg>
+{
+    type InputVar = UTXOVar<Cfg::F>;
+    type OutputVar = FpVar<Cfg::F>;
+    type ParametersVar = Cfg::Var;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
@@ -123,7 +113,7 @@ impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<UTXOCRH<F>, F> for UTX
             input.salt.clone(),
             pk_point,
         ]);
-        GriffinSpongeVar::evaluate(parameters, &input)
+        Cfg::HGadget::evaluate(parameters, &input)
     }
 }
 
@@ -144,20 +134,22 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<NullifierCRH<F>, F> for NullifierVa
     }
 }
 
-pub struct BlockTreeVarCRH<F: PrimeField> {
-    _f: PhantomData<F>,
+pub struct BlockTreeVarCRH<Cfg> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockTreeCRH<F>, F> for BlockTreeVarCRH<F> {
-    type InputVar = BlockMetadataVar<F>;
-    type OutputVar = FpVar<F>;
-    type ParametersVar = CRHParametersVar<F>;
+impl<Cfg: Clone + Init + CanonicalSerialize + CanonicalDeserialize>
+    CRHSchemeGadget<BlockTreeCRH<Cfg>, Cfg::F> for BlockTreeVarCRH<Cfg>
+{
+    type InputVar = BlockMetadataVar<Cfg::F>;
+    type OutputVar = FpVar<Cfg::F>;
+    type ParametersVar = Cfg::Var;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        CRHGadget::evaluate(
+        Cfg::HGadget::evaluate(
             parameters,
             &[
                 input.tx_tree_root.clone(),
@@ -169,27 +161,43 @@ impl<F: PrimeField + Absorb> CRHSchemeGadget<BlockTreeCRH<F>, F> for BlockTreeVa
     }
 }
 
-pub struct BlockTreeVarCRHGriffin<F: PrimeField> {
-    _f: PhantomData<F>,
+pub struct NTo1CRHVar<Cfg, const N: usize> {
+    _f: PhantomData<Cfg>,
 }
 
-impl<F: PrimeField + Absorb + Absorbable> CRHSchemeGadget<BlockTreeCRHGriffin<F>, F>
-    for BlockTreeVarCRHGriffin<F>
-{
-    type InputVar = BlockMetadataVar<F>;
-    type OutputVar = FpVar<F>;
-    type ParametersVar = GriffinParamsVar<F>;
+impl<Cfg: Init, const N: usize> CRHSchemeGadget<NTo1CRH<Cfg, N>, Cfg::F> for NTo1CRHVar<Cfg, N> {
+    type InputVar = [FpVar<Cfg::F>];
+    type OutputVar = FpVar<Cfg::F>;
+    type ParametersVar = Cfg::Var;
 
     fn evaluate(
         parameters: &Self::ParametersVar,
         input: &Self::InputVar,
     ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
-        GriffinSpongeVar::evaluate(
-            parameters,
-            &[input.tx_tree_root.clone(),
-                input.signer_tree_root.clone(),
-                input.nullifier_tree_root.clone(),
-                input.height.to_fp()?],
-        )
+        Cfg::HGadget::evaluate(parameters, &input)
+    }
+}
+
+impl<Cfg: Init> TwoToOneCRHSchemeGadget<NTo1CRH<Cfg, 2>, Cfg::F> for NTo1CRHVar<Cfg, 2> {
+    type InputVar = FpVar<Cfg::F>;
+
+    type OutputVar = FpVar<Cfg::F>;
+
+    type ParametersVar = Cfg::Var;
+
+    fn evaluate(
+        parameters: &Self::ParametersVar,
+        left_input: &Self::InputVar,
+        right_input: &Self::InputVar,
+    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
+        Cfg::HGadget::evaluate(parameters, &[left_input.clone(), right_input.clone()])
+    }
+
+    fn compress(
+        parameters: &Self::ParametersVar,
+        left_input: &Self::OutputVar,
+        right_input: &Self::OutputVar,
+    ) -> Result<Self::OutputVar, ark_relations::gr1cs::SynthesisError> {
+        Cfg::HGadget::evaluate(parameters, &[left_input.clone(), right_input.clone()])
     }
 }
