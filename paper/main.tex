@@ -1,0 +1,123 @@
+\documentclass[a4paper,10pt]{article}
+
+\input{./packages}
+\input{./macros}
+
+\title{\Protocol: A Private Layer 2 With \\ Instant Client-Side Proving}
+\author[1]{Pierre Daix-Moreux}
+\author[1,2]{Chengru Zhang}
+\affil[1]{Ethereum Foundation}
+\affil[2]{The University of Hong Kong}
+\affil[ ]{\url{pierre@ethereum.org}, \url{u3008875@connect.hku.hk}}
+\date{}
+
+\newtheorem{construction}{Construction}
+
+\begin{document}
+
+\input{./acronyms}
+
+\maketitle
+
+\begin{abstract}
+
+In this technical note, we discuss a new direction in the design of privacy-preserving and scalable \ac{L2} protocols by presenting a concrete construction, \Protocol.
+
+To minimize the \ac{L2} users' overhead for achieving privacy while enabling efficient creation of compact blocks, \Protocol is built upon a novel architecture that leverages folding schemes' powerful and flexible properties.
+On the user side, we utilize their \textit{blinding} property to shield and prove transaction data without expensive succinct zero-knowledge proofs.
+On the aggregator side, their \textit{low accumulation cost} allows efficient aggregation of user instances into a constant size proof of block validity.
+
+
+We further improve our proof aggregation performance by proposing an optimization technique that efficiently links two different verification tasks with shared input while eliminating the need for cumbersome proof composition of non-uniform circuits, which could be of independent interest.
+
+The practicality of \Protocol is validated by our preliminary benchmarks, which demonstrate that, with consumer hardware, \Protocol achieves sub-100ms proving time on the client side and sub-300ms per-transaction time on the aggregator side.
+
+\end{abstract}
+
+\section{Introduction}
+
+Public blockchains suffer from two well-known limitations: low throughput~\cite{FCW:CDEGJK16} and lack of privacy~\cite{FC:RonSha13}.
+Their limited throughput is due to the requirement that every validator independently re-executes every transaction, bounding the chain's processing capacity by that of a single node.
+Their lack of privacy is the result of recording all transactions on a public ledger in plaintext.
+Even though the real-world identities of senders and recipients are obfuscated by addresses, they can be revealed through transaction graph analysis and exchange data correlation, offering only pseudonymity rather than full anonymity.
+
+Two largely independent lines of research have sought to address these limitations.
+
+On the \textit{scalability} front, \ac{L2} protocols offload transaction processing from the base \ac{L1} blockchain to an off-chain aggregator that batches transactions and posts compressed updates on-chain.
+However, these designs offer no privacy: even when compressed block data reveals only limited information to external observers, the aggregator has full visibility into every transaction.
+For example, validity rollups, often called ``zk-rollups'', use \acp{zkSNARK} only to prove the correctness of state transitions; the ``zero-knowledge'' qualifier refers to the succinctness of the validity proof, not to any privacy guarantee.
+
+On the \textit{privacy} front, protocols such as Zerocoin~\cite{SP:MGGR13}, Zerocash~\cite{SP:BCGGMT14}, and subsequent works demonstrated how zero-knowledge proofs, especially \acp{zkSNARK}, can hide transaction contents while ensuring honest behaviors by having users generate proofs of transaction validity.
+However, these protocols typically deploy as standalone \acp{L1}, inheriting the base layer's throughput constraints.
+For instance, ZCash, the deployed implementation of Zerocash, achieves $<$10 \ac{TPS}\footnote{\url{https://phemex.com/academy/what-is-zcash-zec}}.
+
+Recent work has attempted to combine privacy with scalability by shielding (hiding) transactions on \acp{L2}.
+However, existing approaches impose a large computational burden on either the user or the aggregator.
+Nightfall~\cite{nightfall4} supports shielded transactions on an \ac{L2} but suffers from huge aggregator proving costs, requiring a machine with 144 cores and 750\,GB RAM to build blocks of just 64 transactions.
+Intmax2~\cite{cryptoeprint:2023/1082} has high theoretical throughput thanks to their block compression technique via short user identifiers and client-side proving.
+However, they require the senders to prove their transaction history and the recipients to merge the sender's proof with their own transaction history using heavy cryptographic primitives for proof composition.
+It is also mandatory for users to synchronize their proofs for \textit{every} block even if it does not contain relevant transactions, limiting practical usability.
+
+In this technical note, we therefore study the following question:
+
+\begin{center}
+    \textit{Can we design a private and scalable \ac{L2} \\ without sacrificing efficiency on both the user and aggregator sides?}
+\end{center}
+
+We provide a novel solution to this question by extending PlasmaFold~\cite{cryptoeprint:2025/1300} and presenting \Protocol.
+\Protocol achieves privacy of transaction amounts and recipients and enables high throughput, all while maintaining low proof generation costs for both users and aggregators.
+Furthermore, users in \Protocol enjoy fast synchronization and instant exits.
+
+Below we elaborate on the key features of our construction.
+
+\paragraph{Transaction privacy with efficient client-side proving.}
+\Protocol operates in the \ac{UTXO} model and provides transaction privacy by hiding transaction amounts and recipients in shielded transactions.
+Although users must generate zero-knowledge proofs attesting to the validity of these transactions, we minimize the computational burden for proof generation.
+Instead of requiring users to run an expensive \ac{zkSNARK} prover, we leverage the blinding property of folding schemes and utilize the BlindFold~\cite{C:KotSet24} technique.
+This allows users to prove transaction validity by simply rerandomizing a satisfying instance-witness pair via folding, which takes less than 100ms on consumer hardware and is practical for a wide range of users.
+
+\paragraph{Optimized proof aggregation.}
+We design a tailored \ac{L2} aggregator who is able to prove \ac{L2} state updates \textit{while} aggregating users' transaction validity proofs.
+
+A naive but inefficient approach would be to use a \ac{PCD} scheme to combine the local execution (i.e., state updates) with the external proofs (i.e., transaction validity proofs) and take care of the non-uniformity of the circuits for these tasks.
+
+We instead propose a more efficient architecture that avoids the need for non-uniform \ac{PCD}, where we decompose this workload into two uniform \ac{IVC} chains while designing an augmented circuit that ensures the two chains are linked by a shared transaction.
+The performance is further boosted by the low accumulation cost of folding schemes.
+By using folding-based \ac{IVC}, our aggregators are able to achieve sub-300ms time for handling each transaction (and its associated proof).
+
+\paragraph{Scalable and trust-minimized block building.}
+
+The architecture of our proof aggregation enables scalable block building with minimal trust assumptions on the aggregator.
+
+First, our design guarantees that the validity of all blocks are enforced by cryptographic proofs, eliminating the need for a fraud proof mechanism or trust assumptions on the aggregator's honesty.
+The final block validity proof is constant in size regardless of the number of aggregated proofs, and combining it with the short ID design from Intmax2 \cite{cryptoeprint:2023/1082}, we can achieve high scalability with minimal on-chain data posting.
+
+Second, thanks to our emulation of \ac{PCD} using \ac{IVC}, \Protocol not only supports a single, permissioned aggregator building blocks by sequentially folding user proofs, but also allows multiple permissionless aggregators to aggregate user proofs in parallel.
+
+\paragraph{Instant exits and fast synchronization.}
+
+In \Protocol, we further leverage balance proofs maintained by users, enabling instant exits from the \ac{L2} at any time, without revealing their transaction history or interacting with the aggregator.
+
+However, to achieve fast synchronization, we improve the design of balance proofs in two aspects.
+First, balance proofs are efficiently updated via folding-based \ac{IVC} using \ac{L2}'s latest state, which is already attested by the aggregator's proof.
+This is in contrast to Intmax2 \cite{cryptoeprint:2023/1082}, where transaction state is maintained by users and updated via costly \ac{PCD} routines.
+Second, our combination of a Merkle tree of blocks and balance proofs allows users to skip synchronization for blocks that contain no relevant transactions to them, who only need to update their balance proofs when they send or receive transactions.
+
+\section{Overview of \Protocol}\label{sec:overview}
+
+\input{overview}
+
+\section{Construction of \Protocol}
+
+\input{construction}
+
+\section{Implementation and Evaluation}\label{sec:evaluation}
+
+\input{implementation}
+
+\input{ack}
+
+\bibliographystyle{plain}
+\bibliography{bib/abbrev3,bib/crypto,bibliography}
+
+\end{document}

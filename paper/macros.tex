@@ -1,0 +1,225 @@
+% Name for our protocol
+\newcommand{\Protocol}{\ensuremath{\mathsf{PlasmaBlind}}\xspace}
+\newcommand{\PlasmaFold}{\ensuremath{\mathsf{PlasmaFold}}\xspace}
+
+% For collaboration
+\newcommand{\Pierre}[1]{{\color{orange}$^{\text{Pierre}}$ #1}}
+\newcommand{\Winderica}[1]{{\color{blue}$^{\text{Winderica}}$ #1}}
+
+% Compact algorithm names
+\newcommand{\Fn}{\ensuremath{\mathcal{F}}\xspace}
+
+\newcommand{\Setup}{\ensuremath{\mathcal{G}}\xspace}
+\newcommand{\KeyGen}{\ensuremath{\mathcal{K}}\xspace}
+\newcommand{\Prove}{\ensuremath{\mathcal{P}}\xspace}
+\newcommand{\Sign}{\ensuremath{\mathcal{S}}\xspace}
+\newcommand{\Verify}{\ensuremath{\mathcal{V}}\xspace}
+\newcommand{\Commit}{\ensuremath{\mathcal{C}}\xspace}
+\newcommand{\Update}{\ensuremath{\mathcal{U}}\xspace}
+
+\newcommand{\Adversary}{\ensuremath{\mathscr{A}}\xspace}
+\newcommand{\TrustedParty}{\ensuremath{\mathscr{T}}\xspace}
+\newcommand{\Simulator}{\ensuremath{\mathscr{S}}\xspace}
+\newcommand{\Extractor}{\ensuremath{\mathscr{E}}\xspace}
+
+% For folding schemes
+\newcommand{\NIFS}{\ensuremath{\mathsf{NIFS}}\xspace}
+\newcommand{\NIFSSetup}{\ensuremath{\mathsf{\NIFS.\Setup}}\xspace}
+\newcommand{\NIFSKeyGen}{\ensuremath{\mathsf{\NIFS.\KeyGen}}\xspace}
+\newcommand{\NIFSProve}{\ensuremath{\mathsf{\NIFS.\Prove}}\xspace}
+\newcommand{\NIFSVerify}{\ensuremath{\mathsf{\NIFS.\Verify}}\xspace}
+
+\newcommand{\U}{\ensuremath{{\mathbb{U}}}\xspace}
+\renewcommand{\u}{\ensuremath{{\mathbb{u}}}\xspace}
+\newcommand{\W}{\ensuremath{{\mathbb{W}}}\xspace}
+\newcommand{\w}{\ensuremath{{\mathbb{w}}}\xspace}
+\newcommand{\cf}{\ensuremath{{\mathsf{cf}}}\xspace}
+\newcommand{\ROneCS}{\ensuremath{{\mathsf{CS}}}\xspace}
+
+\newcommand{\PCD}{\ensuremath{\mathsf{PCD}}\xspace}
+
+
+
+\newcommand{\PRF}{\ensuremath{\mathsf{PRF}}\xspace}
+
+
+% For Commitment schemes
+\newcommand{\CM}{\ensuremath{\mathsf{CM}}\xspace}
+\newcommand{\CMKeyGen}{\ensuremath{\mathsf{\CM.\KeyGen}}\xspace}
+\newcommand{\CMCommit}{\ensuremath{\mathsf{\CM.\Commit}}\xspace}
+\newcommand{\CMVerify}{\ensuremath{\mathsf{\CM.\Verify}}\xspace}
+
+% For IVC
+\newcommand{\IVC}{\ensuremath{\mathsf{IVC}}\xspace}
+\newcommand{\IVCSetup}{\ensuremath{\mathsf{\IVC.\Setup}}\xspace}
+\newcommand{\IVCKeyGen}{\ensuremath{\mathsf{\IVC.\KeyGen}}\xspace}
+\newcommand{\IVCProve}{\ensuremath{\mathsf{\IVC.\Prove}}\xspace}
+\newcommand{\IVCVerify}{\ensuremath{\mathsf{\IVC.\Verify}}\xspace}
+\newcommand{\Aux}{\ensuremath{{\mathsf{aux}}}\xspace}
+
+% For Decider
+\newcommand{\Decider}{\ensuremath{\mathsf{Decider}}\xspace}
+\newcommand{\DeciderSetup}{\ensuremath{\mathsf{\Decider.\Setup}}\xspace}
+\newcommand{\DeciderKeyGen}{\ensuremath{\mathsf{\Decider.\KeyGen}}\xspace}
+\newcommand{\DeciderProve}{\ensuremath{\mathsf{\Decider.\Prove}}\xspace}
+\newcommand{\DeciderVerify}{\ensuremath{\mathsf{\Decider.\Verify}}\xspace}
+
+% For Signature
+\newcommand{\Sig}{\ensuremath{\mathsf{Sig}}\xspace}
+\newcommand{\SigKeyGen}{\ensuremath{\mathsf{\Sig.\KeyGen}}\xspace}
+\newcommand{\SigSign}{\ensuremath{\mathsf{\Sig.\Sign}}\xspace}
+\newcommand{\SigVerify}{\ensuremath{\mathsf{\Sig.\Verify}}\xspace}
+
+% For Accumulators, vector commitments, and merkle trees
+\newcommand{\Acc}{\ensuremath{\mathsf{Acc}}\xspace}
+\newcommand{\Accumulate}{\ensuremath{\mathcal{A}}\xspace}
+\newcommand{\AccProve}{\ensuremath{\mathsf{\Acc.\Prove}}\xspace}
+\newcommand{\AccVerify}{\ensuremath{\mathsf{\Acc.\Verify}}\xspace}
+\newcommand{\AccAdd}{\ensuremath{\mathsf{\Acc.\Add}}\xspace}
+\newcommand{\AccAccumulate}{\ensuremath{\mathsf{\Acc.\Accumulate}}\xspace}
+\newcommand{\AccDelete}{\ensuremath{\mathsf{\Acc.\Delete}}\xspace}
+
+\newcommand{\VecCom}{\ensuremath{\mathsf{VC}}\xspace}
+\newcommand{\VecComProve}{\ensuremath{\mathsf{\VecCom.\Prove}}\xspace}
+\newcommand{\VecComVerify}{\ensuremath{\mathsf{\VecCom.\Verify}}\xspace}
+\newcommand{\VecComUpdate}{\ensuremath{\mathsf{\VecCom.\Update}}\xspace}
+
+\newcommand{\Merkle}{\ensuremath{\mathsf{MT}}\xspace}
+\newcommand{\Add}{\ensuremath{\mathsf{\Update^{+}}}\xspace}
+\newcommand{\Delete}{\ensuremath{\mathsf{\Update^{-}}}\xspace}
+\newcommand{\Modify}{\ensuremath{\mathsf{\Update^{\Huge \mathlarger{\mathlarger{*}}}}}\xspace}
+\newcommand{\MerkleSetup}{\ensuremath{\mathsf{\Merkle.\Setup}}\xspace}
+\newcommand{\MerkleProve}{\ensuremath{\mathsf{\Merkle.\Prove}}\xspace}
+\newcommand{\MerkleVerify}{\ensuremath{\mathsf{\Merkle.\Verify}}\xspace}
+\newcommand{\MerkleAdd}{\ensuremath{\mathsf{\Merkle.\Add}}\xspace}
+\newcommand{\MerkleDelete}{\ensuremath{\mathsf{\Merkle.\Delete}}\xspace}
+\newcommand{\MerkleModify}{\ensuremath{\mathsf{\Merkle.\Modify}}\xspace}
+
+\newcommand{\Params}{\ensuremath{{\mathsf{pp}}}\xspace}
+\newcommand{\Trapdoors}{\ensuremath{{\mathsf{td}}}\xspace}
+\newcommand{\Srs}{\ensuremath{{\mathsf{srs}}}\xspace} % SRS
+\newcommand{\Ck}{\ensuremath{{\mathsf{ck}}}\xspace} % Commitment key
+\newcommand{\Pk}{\ensuremath{{\mathsf{pk}}}\xspace} % Public key
+\newcommand{\Ak}{\ensuremath{{\mathsf{ak}}}\xspace} % Proving (arguing) key
+\newcommand{\Sk}{\ensuremath{{\mathsf{sk}}}\xspace} % Secret key
+\newcommand{\Vk}{\ensuremath{{\mathsf{vk}}}\xspace} % Verification key
+
+\newcommand{\negl}{\ensuremath{\varepsilon}\xspace}
+
+\newtheorem{definition}{Definition}
+
+% Data structures
+\newcommand{\Address}{\ensuremath{\mathsf{addr}}\xspace}
+
+%% Transaction & UTXO
+\newcommand{\Amount}{\ensuremath{\ensuremath{\mathsf{val}}}\xspace}
+\newcommand{\Id}{\ensuremath{id}\xspace}
+\newcommand{\Tx}{\ensuremath{\mathsf{tx}}\xspace}
+\newcommand{\TxShielded}{\ensuremath{\overline{\Tx}}\xspace}
+\newcommand{\Utxo}{\ensuremath{\mathsf{utxo}}\xspace}
+\newcommand{\In}{\ensuremath{\mathcal{I}}\xspace}
+\newcommand{\Out}{\ensuremath{\mathcal{O}}\xspace}
+\newcommand{\Nullifier}{\ensuremath{\mathsf{null}}\xspace}
+\newcommand{\Nonce}{\ensuremath{\mathsf{nonce}}\xspace}
+\newcommand{\Block}{\ensuremath{\mathsf{blk}}\xspace}
+\newcommand{\Balance}{\ensuremath{\mathsf{bal}}\xspace}
+
+
+% block
+\newcommand{\block}[1]{\ensuremath{blk_{#1}}\xspace}
+\newcommand{\blockhashvalue}[1]{\ensuremath{h_{#1}^{\mathsf{blk}}}}
+
+\newcommand{\Witness}[1]{\textcolor{Cerulean}{#1}}
+
+
+%% Trees
+\newcommand{\Tree}{\ensuremath{T}\xspace}
+%%% Transaction tree, accepts a mandatory and an optional argument (subscripts for when the transaction tree is being updated within the IVC)
+\NewDocumentCommand\txtree{ m o }{\ensuremath{\Tree_{#1\IfValueT{#2}{,#2}}^\mathsf{tx}}\xspace}
+%%% UTXO tree, accepts a mandatory and an optional argument (subscripts for when the transaction tree is being updated within the IVC)
+\NewDocumentCommand\utxotree{ m o }{\ensuremath{\Tree_{#1\IfValueT{#2}{,#2}}^\mathsf{utxo}}\xspace}
+%%% Signer tree
+\NewDocumentCommand\signertree{ m o }{\ensuremath{\Tree_{#1\IfValueT{#2}{,#2}}^\mathsf{signer}}\xspace}
+%%% Block tree
+\newcommand{\blocktree}[1]{\ensuremath{\Tree_{#1}^\mathsf{blk}}\xspace}
+%%% Nullifier tree
+\newcommand{\nullifiertree}[1]{\ensuremath{\Tree_{#1}^\mathsf{null}}\xspace}
+
+%% Roots
+\newcommand{\Root}{\ensuremath{r}\xspace}
+\NewDocumentCommand{\txtreeroot}{ m o }{\ensuremath{\Root_{#1\IfValueT{#2}{,#2}}^\mathsf{tx}}\xspace}
+\NewDocumentCommand{\utxotreeroot}{ m o }{\ensuremath{\Root_{#1\IfValueT{#2}{,#2}}^{\mathsf{utxo}}}\xspace}
+\newcommand{\blocktreeroot}[1]{\ensuremath{\Root_{#1}^{\mathsf{blk}}}\xspace}
+\NewDocumentCommand{\signertreeroot}{ m o }{\ensuremath{r^\mathsf{signer}_{#1\IfValueT{#2}{,#2}}}\xspace}
+
+\NewDocumentCommand{\settledutxotreeroot}{ m o }{\ensuremath{\Root_{#1\IfValueT{#2}{,#2}}^{\mathsf{settledutxo}}}\xspace}
+
+\NewDocumentCommand{\nullifiertreeroot}{ m o }{\ensuremath{r^\mathsf{null}_{#1\IfValueT{#2}{,#2}}}\xspace}
+
+%% Merkle Paths
+\newcommand{\Path}{\ensuremath{\varpi}\xspace}
+\NewDocumentCommand{\merklepathtxtree}{ m o }{\ensuremath{\Path^\mathsf{tx}_{#1\IfValueT{#2}{,#2}}}\xspace}
+\NewDocumentCommand{\merklepathutxotree}{ m o }{\ensuremath{\Path^{\mathsf{utxo}}_{#1\IfValueT{#2}{,#2}}}\xspace}
+\newcommand{\merklepathblocktree}[2]{\ensuremath{\Path^{\mathsf{blk}}_{#1,#2}}\xspace}
+\newcommand{\merklepathsignertree}[2]{\ensuremath{\Path^{\mathsf{signer}}_{#1,#2}}\xspace}
+
+
+% signer list, idx of signer in signer list
+\NewDocumentCommand{\signerlist}{ m o }{\ensuremath{\mathcal{L}_{#1\IfValueT{#2}{,#2}}^{\mathsf{signer}}}\xspace}
+\NewDocumentCommand{\signeracc}{ m o }{\ensuremath{\sigma^{\mathsf{signer}}_{#1\IfValueT{#2}{,#2}}}\xspace}
+
+% signer list
+\NewDocumentCommand{\nullifierslist}{ m o }{\ensuremath{\mathcal{L}_{#1\IfValueT{#2}{,#2}}^{\mathsf{null}}}\xspace}
+
+
+% deposit accumulator
+\NewDocumentCommand{\depositacc}{ m o }{\ensuremath{\sigma^{\mathsf{deposit}}_{#1\IfValueT{#2}{,#2}}}\xspace}
+\NewDocumentCommand{\depositlist}{ m o }{\ensuremath{\mathcal{L}_{#1\IfValueT{#2}{,#2}}^{\mathsf{deposit}}}\xspace}
+
+% withdrawal list, withdrawal accumulator
+\NewDocumentCommand{\withdrawallist}{ m o }{\ensuremath{\mathcal{L}_{#1\IfValueT{#2}{,#2}}^{\mathsf{withdraw}}}\xspace}
+\NewDocumentCommand{\withdrawacc}{ m o }{\ensuremath{\sigma^{\mathsf{withdraw}}_{#1\IfValueT{#2}{,#2}}}\xspace}
+
+\NewDocumentCommand{\blockacc}{ m o }{\ensuremath{\sigma^{\mathsf{blk}}_{#1\IfValueT{#2}{,#2}}}\xspace}
+
+% IVC circuits
+\newcommand{\ivccircuit}[2]{\ensuremath{\Fn^{\mathsf{#1}}_{\mathsf{#2}}}\xspace}
+
+% functions
+% \newcommand{\computetxidx}{\ensuremath{\mathtt{idx}(\text{tx})}\xspace}
+% \newcommand{\preparetrees}{\ensuremath{\mathtt{PrepareTrees}}\xspace}
+% \newcommand{\signsend}{\ensuremath{\mathtt{SignSend}}\xspace}
+% \newcommand{\sign}[1]{\ensuremath{\mathtt{sign(}#1\mathtt{)}}}
+
+% IVC proofs
+\newcommand{\ivcbalanceproof}[1]{\ensuremath{\pi_{#1}}\xspace}
+\newcommand{\ivcblockproof}[1]{\ensuremath{\Pi_{#1}}\xspace}
+
+
+% Algorithm
+%% keywords
+\SetKwProg{Function}{Function}{:}{}
+\SetKwProg{Circuit}{Circuit}{:}{}
+\SetKw{Enforce}{enforce}{}
+%% Comment starting with a triangle
+\SetKwComment{Comment}{$\triangleright$\ }{}
+\newcommand\CommentStyle[1]{\rmfamily{#1}}
+\SetCommentSty{CommentStyle}
+
+% Math
+\newcommand{\concat}{\ensuremath{\mathbin\Vert}}
+\renewcommand{\vec}[1]{\boldsymbol{#1}}
+\newcommand{\mat}[1]{\boldsymbol{#1}}
+%% A short hyphen in math mode
+\mathchardef\mhyphen="2D
+%% Better \emptyset
+\let\oldemptyset\emptyset
+\let\emptyset\varnothing
+
+
+\newcommand{\IVLS}{\ensuremath{\mathsf{IVLS}}\xspace}
+
+
+\newcommand{\sonobe}{\texttt{Sonobe}}
+\newcommand{\arkworks}{\texttt{Arkworks}}
+\newcommand{\implementationurl}{\url{https://github.com/dmpierre/plasma-fold}}

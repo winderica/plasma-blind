@@ -1,0 +1,78 @@
+\usepackage[utf8]{inputenc}
+
+
+\usepackage{subfiles}
+\usepackage{microtype}
+
+% Required for inserting images
+\usepackage{graphicx}
+
+% Math stuff
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage[bb=stix,scr=boondoxo]{mathalpha}
+
+\usepackage{xspace}
+
+% Color definitions
+\usepackage[dvipsnames]{xcolor}
+
+% Handle abbreviations
+\usepackage[nolist]{acronym}
+
+% Better algorithm
+\usepackage[linesnumbered,ruled,vlined]{algorithm2e}
+
+% Better table
+\usepackage{booktabs}
+\usepackage[footnotehyper]{nicematrix}
+\usepackage{makecell}
+
+% Better reference
+\usepackage{hyperref}
+\hypersetup{                    % ...like so
+  colorlinks,
+  linkcolor={green!80!black},
+  citecolor={red!70!black},
+  urlcolor={blue!70!black}
+}
+\usepackage{cleveref}
+
+\usepackage{cite}
+
+% TODO
+\usepackage{todonotes}
+
+% SVG support
+\usepackage[inkscapeversion=1]{svg}
+
+% Charts
+\usepackage{pgfplots}
+\pgfplotsset{compat=newest}
+\usetikzlibrary{patterns}
+
+% Colorblind-safe palette (Tol "bright" scheme)
+\definecolor{tolblue}{HTML}{4477AA}
+\definecolor{tolred}{HTML}{EE6677}
+\definecolor{tolgreen}{HTML}{228833}
+\definecolor{tolyellow}{HTML}{CCBB44}
+
+\usepackage{enumitem}
+
+\usepackage{authblk}
+
+
+\makeatletter
+\AtBeginDocument
+ {
+   \def\ltx@label#1{\cref@label{#1}}%add braces
+   \def\label@in@display@noarg#1{\cref@old@label@in@display{#1}}%remove braces
+\def\label@in@mmeasure@noarg#1{%
+    \begingroup%
+      \measuring@false%
+      \cref@old@label@in@display{#1}%remove braces for multline, see https://tex.stackexchange.com/q/737204/2388
+    \endgroup}%  
+ } %
+\makeatother

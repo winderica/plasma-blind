@@ -1,0 +1,491 @@
+As an efficient and scalable \ac{L2} protocol for private transactions, \Protocol specifies the interactions among three types of parties: the \textit{user}, the \textit{aggregator}, and the \textit{rollup contract}.
+To introduce the construction of \Protocol, we first recap its high-level design introduced in~\Cref{sec:overview}, and then we elaborate on the specific data structures and behaviors of each party.
+
+When a user (sender) makes a transfer to another user (recipient), the sender builds a \textit{transparent transaction} for the transfer and converts it to a \textit{shielded transaction} by hiding its content.
+The shielded transaction is then sent to the aggregator.
+
+We then leverage Intmax2's idea that ensures data availability using interaction between the sender and the aggregator.
+After collecting transactions from all senders, the aggregator builds a \textit{Merkle tree} on top of the transactions and returns to each sender a \textit{Merkle proof} as the \textit{receipt}.
+
+At this point, all transactions are regarded as unsettled.
+Every sender needs to provide the aggregator with an \textit{endorsement}, instantiated as the \textit{transaction proof} attesting to their transaction validity, to settle their transactions upon receiving the receipt.
+
+Next, the aggregator builds a \textit{block} for transactions with valid proofs, accumulates all valid proofs into a short \textit{block proof}, and proposes the block to the rollup contract.
+The rollup contract verifies the attached block proof and updates the \textit{nonces} for senders with endorsed transactions.
+
+Furthermore, senders and recipients use the receipt and onchain data to update their local \textit{balance proofs}, which are useful when the user wishes to non-interactively withdraw funds from the L2.
+
+\subsection{Notions and Data Structures}
+
+We now list the notions and data structures involved in \Protocol.
+For each notion or data structure, we explain its purpose and discuss how it is constructed and maintained by \Protocol participants.
+
+\subsubsection{Keys}
+
+Every user in \Protocol has a secret key $\Sk$ and a public key $\Pk$.
+$\Pk$ represents the user's identity in \Protocol, while $\Sk$ is used to authorize transactions, ensuring that funds can only be spent by their owners.
+
+Upon joining \Protocol, every user needs to create a key pair $(\Sk, \Pk)$, submit the public key $\Pk$ to the rollup contract, and store the secret key $\Sk$ locally.
+The contract appends \Pk to a mapping of public keys maintained in its state.
+
+When sending funds to other users, the sender must generate a proof showing that the public key \Pk associated with the funds is indeed derived from the sender's secret key \Sk.
+Looking ahead, while a classic signature scheme such as ECDSA could be used, we instead opt for a general-purpose zero-knowledge proof to demonstrate the knowledge of \Sk, which is more flexible and can be easily composed with other proofs.
+
+To maximize the efficiency of this general-purpose proof, we further note that \Protocol is a separate \ac{L2} protocol built upon the \ac{L1}.
+Thus, it is not necessary for $\Sk$ and $\Pk$ to have the same format as the \ac{L1}'s secret-public key pairs (e.g., be based on elliptic curves).
+Consequently, we can simply derive \Pk from \Sk as $\Pk \coloneqq \PRF(\Sk, \bot)$ using a PRF based on a circuit-friendly hash function.
+
+\subsubsection{Nonces}
+
+A nonce \Nonce in \Protocol is an increment-only counter that tracks the total number of transactions sent by a user.
+It is stored by both the user and the rollup contract and is updated whenever a new transaction sent by the user is verified.
+
+The purpose of \Nonce is to prevent users from omitting expenditures from their balance proofs.
+Specifically, a malicious user may skip updating their balance proof after spending some funds and later claim a higher balance than they actually have when exiting \Protocol.
+In our solution, we require the user to submit their local nonce to the rollup contract when exiting, which will be compared with the latest nonce stored onchain.
+The user cannot arbitrarily set their local nonce, since we use the balance proof to guarantee that the local nonce can be incremented only when the user updates their balance with an expenditure.
+
+\subsubsection{Transactions}
+
+\Protocol operates in the \ac{UTXO} model, and a transaction in \Protocol consumes old \acp{UTXO} to create new \acp{UTXO}.
+A \ac{UTXO} is denoted as $\Utxo \coloneqq (\Pk, \Amount)$, where \Amount and \Pk are respectively the \ac{UTXO}'s value and the public key of the \ac{UTXO}'s owner.
+
+We consider two forms of transactions: \textit{transparent transactions} and \textit{shielded transactions}, as defined below.
+
+\paragraph{Transparent transactions.}
+A transparent transaction contains the consumed input \acp{UTXO} and the created output \acp{UTXO} in plaintext.
+It is only known to the sender for privacy of transaction data such as recipients and amounts, and is never shared with the aggregator or other users.
+Formally, a transparent transaction with $m$ input \acp{UTXO} and $n$ output \acp{UTXO} is defined as $\Tx \coloneqq (\{ \Utxo^\In_i \}^{m - 1}_{i = 0}, \{ \Utxo^\Out_j \}^{n - 1}_{j = 0})$.
+
+\paragraph{Shielded transactions.}
+Instead of transparent transactions, shielded transactions are what users send to the aggregator and their peer users in \Protocol.
+They are derived from transparent transactions by hiding the input \acp{UTXO} with \textit{nullifiers} and the output \acp{UTXO} with \textit{committed \acp{UTXO}}.
+Formally, a shielded transaction with $m$ input nullifiers and $n$ output \acp{UTXO} is defined as $\TxShielded = (\{ \Nullifier^\In_i \}^{m - 1}_{i = 0}, \{ \overline{\Utxo}^\Out_j \}^{n - 1}_{j = 0})$.
+
+\begin{itemize}
+    \item \textit{Nullifiers.}
+    A nullifier $\Nullifier$ signifies the consumption of a \ac{UTXO}.
+    For a transaction sender to spend a \ac{UTXO} that they have received previously, 
+    they must provide the \ac{UTXO}'s corresponding nullifier, which must not exist in the set of all previous nullifiers.
+    We require that each \ac{UTXO} has a unique nullifier, and that the nullifier does not leak information about the \ac{UTXO}.
+    In this way, the sender is prevented from double-spending, while anyone other than the sender cannot learn the sender's transaction history.
+
+    To achieve both requirements, we utilize a collision-resistant \PRF to deterministically derive the nullifier from the sender's secret key \Sk and the \ac{UTXO}'s position.
+    Specifically, suppose the sender owns a previously received \ac{UTXO}, which is the $j$-th output of the $k$-th transaction at the $t$-th block.
+    Now, to spend this \ac{UTXO}, the sender derives the corresponding nullifier $\Nullifier \coloneqq \PRF(\Sk, (j, k, t))$.
+    Intuitively, every \ac{UTXO} can be uniquely identified by its position $(j, k, t)$, and consequently there is only one nullifier that corresponds to a specific \ac{UTXO} owned by a specific user.
+    On the other hand, collision resistance ensures that it is computationally infeasible to find two different pairs of secret keys and positions that yield the same nullifier, which prevents the adversary from spending others' \acp{UTXO}.
+    Furthermore, the confidentiality of \ac{UTXO} is guaranteed because the output of \PRF is indistinguishable from a truly random string.
+
+    \item \textit{Committed \acp{UTXO}.}
+    A committed \ac{UTXO} $\overline{\Utxo}$ is a commitment to a \ac{UTXO} $\Utxo$.
+    More specifically, we compute $\overline{\Utxo} \coloneqq \CMCommit(\Ck, \Utxo; \rho)$ using a commitment scheme $\CM$ under commitment key $\Ck$ and opening $\rho$. 
+    
+    Committed \acp{UTXO} are submitted to the aggregator to signify the creation of new \acp{UTXO}, while their values and recipients are kept secret due to the hiding property of $\CM$.
+    In addition, openings need to be sent to the corresponding recipients, so that they can later claim the ownership of their received \acp{UTXO}, and the binding property of $\CM$ ensures the commitments are opened to the correct values.
+\end{itemize}
+
+\subsubsection{Blocks and trees}
+
+A block in \Protocol is a summary of transaction data proposed by the aggregator in a specific period of time.
+While an intuitive design is to record every piece of transaction information in blocks, we leverage Merkle trees $\Tree$ (or vector commitments in general) to reduce calldata size and onchain storage.
+Specifically, we record succinct digests (i.e., Merkle roots $\Root$) of transaction information in the rollup contract's state, and require the user and the aggregator to demonstrate the validity of Merkle proofs $\Path$ against the onchain roots when making transactions or proposing blocks, thereby preventing them from maliciously claiming or manipulating transaction data.
+
+The following types of Merkle trees are involved in \Protocol:
+
+\begin{enumerate}
+    \item \textit{Committed \ac{UTXO} tree.}
+    A committed \ac{UTXO} tree $\Tree^{\overline{\Utxo}}_t$ is an ephemeral data structure specific to the block at height $t$.
+    It is maintained by the aggregator and contains committed \acp{UTXO} of all \textit{unsettled} shielded transactions in the block as leaves.
+    We stress that $\Tree^{\overline{\Utxo}}_t$ is for unsettled \acp{UTXO}.
+    In other words, while these committed UTXOs are contained in the tree, they may not indicate the consumption of old \acp{UTXO} and the creation of new \acp{UTXO}, 
+    because it is still unknown whether they will be endorsed when building the committed \ac{UTXO} tree.
+    \item \textit{Public key tree.}
+    A public key tree $\Tree^\Pk_t$ is an ephemeral data structure specific to the block at height $t$.
+    It is maintained by the aggregator and contains either the sender's public key of the corresponding transaction in the block or $\bot$, depending on whether the sender has successfully demonstrated the validity of their transaction by providing a transaction proof (introduced later).
+    \item \textit{Nullifier tree.}
+    The nullifier tree $\Tree^\Nullifier$ is a permanent, global data structure.
+    It is maintained by the aggregator, who computes \ac{IVC} proofs attesting to root transitions, and contains all historical valid nullifiers as leaves. The rollup contract stores the latest root and updates it upon receiving a valid proof.
+    \item \textit{Block tree.}
+    The block tree $\Tree^\Block$ is a permanent, global data structure.
+    It is maintained by the aggregator and contains the header (introduced later) of every historical valid block as leaves.
+    A copy of the block tree is also stored by the rollup contract, which only verifies the root transition but does not update the tree itself.
+\end{enumerate}
+
+In addition to the syntax introduced above, we further use $\Tree_{[i]}$ (resp. $\Root_{[i]}$) for $i \in [0, m]$ to denote the intermediate Merkle tree (resp. root) that already contains $i$ leaves and will eventually have $m$ leaves.
+Hence, $\Tree = \Tree_{[m]}$ (resp. $\Root = \Root_{[m]}$) can be considered as the shorthand for the final tree (resp. root).
+
+We subsequently define a block $\Block_t$ at height $t$ by splitting it into two parts: the header $\mathsf{header}$ and the body $\mathsf{body}$.
+
+$\mathsf{header}$, recorded by the rollup contract, contains the committed \ac{UTXO} tree root $\Root^{\overline{\Utxo}}_t$,
+the public key tree root $\Root^\Pk_t$,
+and the nullifier tree root $\Root^\Nullifier_{[t]}$,
+% and the block tree root $\Root^\Block_{[t]}$,
+which are short enough for efficient hash computation of block tree leaves and low onchain storage overhead.
+
+On the other hand, $\mathsf{body}$ includes extra information that is necessary to prevent the aggregator from misbehaving.
+Although most of transaction data, such as nullifier values, can be locally maintained by the aggregator, it is sometimes inevitable to publish part of transaction data.
+For instance, the aggregator may (deliberately or accidentally) ignore a user's transaction by inserting $\bot$ into the public key tree, even if the user has provided a valid transaction proof.
+Thus, in line with Intmax2's setup, we require the aggregator to post onchain the leaves of $\Tree^\Pk_t$, so that users can learn whether the aggregator has included their transactions in the current block.
+This information will also be used by the rollup contract to update users' nonces.
+Fortunately, we can avoid storing $\mathsf{body}$ as the rollup contract's state.
+This is because when invoking the rollup contract on input $\Block$, $\mathsf{body}$ is a part of the calldata, which can be later retrieved from full nodes.
+
+
+\subsubsection{Proofs}
+
+Proofs are crucial components in \Protocol, which enforce that our users and aggregator behave correctly.
+We consider three types of proofs:
+
+\begin{enumerate}
+    \item \textit{Transaction proofs.}
+    Recall that, to ensure the confidentiality of transaction data such as recipients and amounts, users in \Protocol send shielded transactions containing nullifiers and committed \acp{UTXO}.
+    Consequently, the aggregator cannot learn the original input or output \acp{UTXO} and is unable to check whether users' transactions are valid.
+    Instead, it is the sender's responsibility to show the validity of their submitted shielded transactions.
+    
+    To this end, the sender generates a \textit{transaction proof} $\pi^\Tx$ that witnesses $w = (\Sk, \Tx)$ and public inputs $x = (\Pk, \TxShielded, \Root^\Block)$ satisfy the transaction validity relation $R^\Tx$.
+
+    Informally, $R^\Tx$ holds if and only if:
+    \begin{itemize}
+        \item $\Pk$ is correctly derived from $\Sk$.
+        \item For every input \ac{UTXO} $\Utxo^\In_i$ in $\Tx$:
+        \begin{itemize}
+            \item $\Pk$ is the owner of $\Utxo^\In_i$.
+            \item $\Utxo^\In_i$ was created for $\Pk$ as the $j'$-th output of the $k'$-th transaction at the $t'$-th block for some $(j', k', t')$.
+            This can be done by checking if:
+            \begin{itemize}
+                \item The corresponding committed \ac{UTXO} $\overline{\Utxo}^\Out_{j'}$ is the $k' \times n + j'$-th leaf of a committed \ac{UTXO} tree.
+                \item $\Pk' \neq \bot$ is the $k'$-th leaf of a public key tree.
+                \item The committed \ac{UTXO} tree and the public key tree are in the $t'$-th leaf of the block tree with root $\Root^\Block$.
+            \end{itemize}
+            \item The corresponding nullifier $\Nullifier^\In_i$ in \TxShielded is correctly derived from $\Sk$ and $(j', k', t')$.
+        \end{itemize}
+        \item For every output \ac{UTXO} $\Utxo^\Out_j$ in $\Tx$:
+        \begin{itemize}
+            \item The corresponding committed \ac{UTXO} $\overline{\Utxo}^\Out_j$ in \TxShielded is correctly derived from $\Utxo^\Out_j$ under some opening $\rho$.
+        \end{itemize}
+        \item The sum of amounts of input \acp{UTXO} $\{\Utxo^\In_i\}^{m - 1}_{i = 0}$ equals that of output \acp{UTXO} $\{\Utxo^\Out_j\}^{n - 1}_{j = 0}$
+    \end{itemize}
+    
+    \item \textit{Block proofs.}
+    To allow the rollup contract to efficiently verify that a block is honestly built without examining every shielded transaction inside, we require the aggregator to generate a succinct \textit{block proof} $\pi^\Block$ for each block.
+    By checking the validity of this proof, the rollup contract should be convinced that every shielded transaction in the block is valid, and that these transactions are correctly summarized as the block data.
+
+    $\pi^\Block$ attests to the satisfiability of the block validity relation $R^\Block$.
+    Given witnesses $w = (\{\Pk_{t, k}\}^{l - 1}_{k = 0}, \{\TxShielded_{t, k}\}^{l - 1}_{k = 0}, \{\pi^\Tx_{t, k}\}^{l - 1}_{k = 0})$ and public inputs $x = (\Root^{\overline{\Utxo}}_t, \Root^\Pk_t, \Root^\Nullifier_{[t - 1]}, \Root^\Nullifier_{[t]}, \Root^\Block_{[t - 1]}, \Root^\Block_{[t]})$, where $l$ is the number of transactions in the block, $R^\Block$ holds if and only if:
+    \begin{itemize}
+        \item $\Root^{\overline{\Utxo}}_t$ is the root of the committed \ac{UTXO} tree that contains committed \acp{UTXO} of all shielded transactions in the block as leaves.
+        \item $\Root^\Pk_t$ is the root of the public key tree whose $k$-th leaf is either $\Pk_{t, k}$ or $\bot$.
+        \item $\Nullifier^\In_{t, k, i}$ for every $i \in [0, m - 1], k \in [0, l - 1]$ are not contained in the nullifier tree with old root $\Root^\Nullifier_{[t - 1]}$.
+        \item After inserting $\Nullifier^\In_{t, k, i}$ for all $i \in [0, m - 1], k \in [0, l - 1]$ to the nullifier tree with old root $\Root^\Nullifier_{[t - 1]}$, the new nullifier tree root becomes $\Root^\Nullifier_{[t]}$.
+        \item After inserting $(\Root^{\overline{\Utxo}}_t, \Root^\Pk_t, \Root^\Nullifier_{[t]})$ to the block tree with old root $\Root^\Block_{[t - 1]}$, the new block tree root becomes $\Root^\Block_{[t]}$.
+        \item $\pi^\Tx_{t, k}$ for every $k \in [0, l - 1]$ is valid if the $k$-th leaf of $\Tree^\Pk_t$ is not $\bot$.
+    \end{itemize}
+
+    \item \textit{Balance proofs.}
+    In \Protocol, we hide the amounts of \acp{UTXO} behind their commitments, making it infeasible for another party to learn the balance of a user.
+    However, when exiting from the private \ac{L2}, the user needs to reveal their balance, so that the rollup contract can transfer the corresponding amount of \ac{L1} funds back to the user.
+    To this end, each user in \Protocol further maintains their own \textit{balance proof} $\pi^\Balance$ locally, which is updated when the user sends or receives a transaction and is sent to the rollup contract for verification when the user wishes to exit from \Protocol.
+
+    $\pi^\Balance$ attests that witnesses $w = (\{(\Pk_{t', k'}, \Tx_{t', k'}, \TxShielded_{t', k'})\}_{(t', k') \in \mathcal{L}})$ and public inputs $x = (\Balance, \Nonce, \Pk, \Root^\Block_{[t]})$ satisfy the balance validity relation $R^\Balance$, where $\mathcal{L}$ is a list that records the index and block height of every transaction involving the user.
+    This is examined by checking the following conditions:
+    \begin{itemize}
+        \item For every relevant shielded transaction $\TxShielded_{t', k'}$ and its sender $\Pk_{t', k'}$:
+        \begin{itemize}
+            \item Consider a $\Utxo^\Out_{j'}$ in the corresponding transparent transaction $\Tx_{t', k'}$.
+            If $\Pk_{t', k'} = \Pk$, i.e., the user is the sender, then they must know $\rho_{j'}$ that opens $\overline{\Utxo}^\Out_{j'}$ to $\Utxo^\Out_{j'}$ for \textit{every} $j' \in [0, n - 1]$.
+            Otherwise, the user is the recipient, and they must know $\rho_{j'}$ that opens $\overline{\Utxo}^\Out_{j'}$ to $\Utxo^\Out_{j'}$ for \textit{some} $j' \in [0, n - 1]$ as long as $\Utxo^\Out_{j'}.\Pk = \Pk$.
+
+            \item For every relevant $j' \in [0, n - 1]$, $\overline{\Utxo}^\Out_{j'}$ is the $j'$-th leaf of the \ac{UTXO} tree with root $\Root^\Utxo_{t', k'}$.
+            \item $\Root^\Utxo_{t', k'}$ is the $k'$-th leaf of the committed \ac{UTXO} tree with root $\Root^{\overline{\Utxo}}_{t'}$.
+            \item $\Pk_{t', k'}$ is the $k'$-th leaf of the public key tree with root $\Root^\Pk_{t'}$.
+            \item $\Root^{\overline{\Utxo}}_{t'}$ and $\Root^\Pk_{t'}$ are components of the $t'$-th leaf of the block tree with root $\Root^\Block_{[t]}$.
+        \end{itemize}
+        \item By subtracting the sum of amounts of spent \acp{UTXO} from the sum of amounts of received \acp{UTXO} in all relevant transactions, the obtained result is $\Balance$
+        \item The number of transactions sent by $\Pk$ is equal to $\Nonce$
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Main Procedures}
+
+We are now ready to describe the main procedures of \Protocol, namely, the \textit{enrollment flow} the \textit{transaction flow}, and the \textit{exit flow}.
+We further highlight how the transaction proofs, block proofs, and balance proofs are initiated and used in these procedures.
+
+\subsubsection{Enrollment flow}
+
+The enrollment flow is the procedure for a user to join \Protocol.
+It involves the user and the rollup contract.
+To enroll in the \ac{L2}, the user generates a key pair $(\Sk, \Pk)$ and informs the rollup contract of their public key \Pk.
+The rollup contract registers the user by recording the user's \ac{L2} public key \Pk with their \ac{L1} address \Address and initializing the user's nonce $\Nonce_\Pk$ to 0.
+
+\subsubsection{Transaction flow}
+
+The transaction flow is the procedure for a user (the sender) to transfer funds to another user (the recipient) in \Protocol.
+It involves the sender, the recipient, the aggregator, and the rollup contract.
+When elaborating on the transaction flow, we assume that the sender has already enrolled in \Protocol and has previously received some \acp{UTXO} that they can spend.
+We also assume that there are already $t - 1$ blocks and the participants are building the $t$-th block, which contains the sender's transaction.
+
+\paragraph{Preparation of transactions (Sender).}
+
+To initiate a transfer, the sender first constructs a transparent transaction $\Tx \coloneqq (\{ \Utxo^\In_i \}^{m - 1}_{i = 0}, \{ \Utxo^\Out_j \}^{n - 1}_{j = 0})$ by selecting $m$ previously received \acp{UTXO} as inputs and specifying $n$ output \acp{UTXO}, each containing the recipient's public key and the transfer amount.
+The sum of input amounts must equal the sum of output amounts, i.e., $\sum_{i} \Utxo^\In_i.\Amount = \sum_{j} \Utxo^\Out_j.\Amount$.
+
+Next, the sender derives the shielded transaction $\TxShielded = (\{ \Nullifier^\In_i \}^{m - 1}_{i = 0}, \{ \overline{\Utxo}^\Out_j \}^{n - 1}_{j = 0})$ from $\Tx$.
+For each input \ac{UTXO} at position $(j', k', t')$, the sender computes its nullifier as $\Nullifier^\In_i \coloneqq \PRF(\Sk, (j', k', t'))$.
+For each output \ac{UTXO}, the sender samples a random opening $\rho_j$ and computes the committed \ac{UTXO} as $\overline{\Utxo}^\Out_j \coloneqq \CMCommit(\Ck, \Utxo^\Out_j; \rho_j)$.
+
+Finally, the sender submits $\TxShielded$ to the aggregator for inclusion in the upcoming block.
+In addition, the sender sends $\TxShielded$ along with the opening $\rho_j$ and the corresponding output \ac{UTXO} $\Utxo^\Out_j$ to each recipient $\Pk_j$, enabling them to later verify the commitments and claim ownership of their received \acp{UTXO}.
+
+\paragraph{\textit{Receipts} generation for unsettled transactions (Aggregator).}
+The aggregator collects shielded transactions from users and builds the committed \ac{UTXO} tree $\Tree^{\overline{\Utxo}}_{t}$ by inserting the committed \acp{UTXO} of all collected transactions as leaves.
+In line with Intmax2's data availability setup, the \acp{UTXO} are still unsettled at this point, and inclusion in the committed \ac{UTXO} tree does not guarantee the \acp{UTXO} to be valid.
+This is because an aggregator may fail to send the receipt to the sender, in which case the sender cannot endorse the transaction.
+
+To receive the endorsement from the sender, the aggregator needs to return the receipt to every sender, which consists of the Merkle proof that their output committed \acp{UTXO} are in the committed \ac{UTXO} tree.
+
+\paragraph{\textit{Endorsement} of transactions (Sender).}
+With the receipt returned by the aggregator, the sender checks its validity and then endorse their unsettled transactions.
+To this end, the sender invokes the transaction validity circuit $\Fn^\Tx$~\Cref{alg:tx-circuit} with witnesses $w = (\Sk, \Tx)$ and public inputs $u = (\Pk, \TxShielded)$, during which the assignments $v$ to all in-circuit variables can be extracted.
+
+\begin{algorithm}[!ht]
+    \DontPrintSemicolon
+    \caption{Circuit for $R^\Tx$}\label{alg:tx-circuit}
+    \Circuit{$\Fn^\Tx(w = (\Sk, \Tx), x = (\Pk, \TxShielded, \{\Root^\Block_i\}^{m-1}_{i=0}))$}{
+        \Enforce{$\Pk = \PRF(\Sk, \bot)$}\;
+        \For{$i \in [0, m - 1]$}{
+            \Enforce{$\Pk = \Utxo^\In_i.\Pk$}\;
+            Receive $\Utxo^\In_i$'s position $(j', k', t')$ as hints from the prover\;
+            \Comment{Ensure that $\Utxo^\In_i$ is the $j'$-th output \ac{UTXO}}
+            Receive \ac{UTXO} tree root $\Root^\Utxo_{t', k'}$ and membership proof $\Path^\Utxo_{t', k', j'}$ as hints from the prover\;
+            \Enforce{$\MerkleVerify(\Root^\Utxo_{t', k'}, \Utxo^\In_i, j', \Path^\Utxo_{t', k', j'}) = 1$}\;
+            \Comment{Ensure that $\Root^\Utxo_{t', k'}$ corresponds to the $k'$-th transaction}
+            Receive committed \ac{UTXO} tree root $\Root^{\overline{\Utxo}}_{t'}$ and membership proof $\Path^{\overline{\Utxo}}_{t', k'}$ as hints from the prover\;
+            \Enforce{$\MerkleVerify(\Root^{\overline{\Utxo}}_{t'}, \Root^\Utxo_{t', k'}, k', \Path^{\overline{\Utxo}}_{t', k'}) = 1$}\;
+            \Comment{Ensure that $\Root^{\overline{\Utxo}}_{t'}$ is in the $t'$-th block}
+            Receive membership proof $\Path^\Block_{t'}$, public key tree root $\Root^\Pk_{t'}$, and nullifier tree root $\Root^\Nullifier_{t'}$ as hints from the prover\;
+            \Enforce{$\MerkleVerify(\Root^\Block_i, (\Root^{\overline{\Utxo}}_{t'}, \Root^\Pk_{t'}, \Root^\Nullifier_{t'}), t', \Path^\Block_{t'}) = 1$}\;
+            \Comment{Ensure that previous sender has provided a valid proof}
+            Receive previous sender public key $\Pk_{t', k'}$ and membership proof $\Path^\Pk_{t', k'}$ as hints from the prover\;
+            \Enforce{$\MerkleVerify(\Root^\Pk_{t'}, \Pk_{t', k'}, k', \Path^\Pk_{t', k'}) = 1$}\;
+            \Comment{Ensure that $\Nullifier^\In_i$ is the nullifier for $\Utxo^\In_i$}
+            \Enforce{$\Nullifier^\In_i = \PRF(\Sk, (j', k', t'))$}\;
+        }
+        \For{$j \in [0, n - 1]$}{
+            \Comment{Ensure that $\overline{\Utxo}^\Out_j$ is the commitment to $\Utxo^\Out_j$}
+            Receive opening $\rho$ as hints from the prover\;
+            \Enforce{$\overline{\Utxo}_j \coloneqq \CMCommit(\Ck, \Utxo_j; \rho)$}\;
+        }
+        \Enforce{$\sum_{i = 0}^{m - 1} \Utxo^\In_i.\Amount = \sum_{j = 0}^{n - 1} \Utxo^\Out_j.\Amount $}\;
+    }
+\end{algorithm}
+
+Instead of generating a succinct zero-knowledge proof, we now leverage BlindFold, to maximize client-side generation speed.
+
+With a folding scheme $\NIFS$ that satisfies the hiding property, the sender derives from the assignments $v$ an incoming witness-instance pair $(\w^\Tx, \u^\Tx)$ for $\NIFS$.
+In order to hide the secret information in witness $\w^\Tx$, the sender further samples a random running witness-instance pair $(\W^\$, \U^\$)$ and folds it with the incoming pair by computing $(\W^\Tx, \U^\Tx), \pi \coloneqq \NIFSProve(\Ak, (\W^\$, \U^\$), (\w^\Tx, \u^\Tx))$.
+Now the sender can send the transaction proof $\pi^\Tx \coloneqq (\W^\Tx, \U^\$, \u^\Tx, \pi)$ to the aggregator.
+
+Due to the hiding property of $\NIFS$, the aggregator cannot learn any information about $\w^\Tx$ from $\W^\Tx$, while the soundness of \NIFS prevents the sender from using an invalid $\w^\Tx$.
+
+\paragraph{Finalization of block (Aggregator).}
+
+Only after receiving the endorsement from the user can the aggregator start processing the unsettled transactions and building the final block.
+
+During this process, the aggregator first verifies every endorsement, which is done by computing $\U^\Tx_{t, k} \coloneqq \NIFSVerify(\Vk, \U^\$_{t, k}, \u^\Tx_{t, k}, \pi_{t, k})$, verifying the satisfiability of $\W^\Tx_{t, k}$ against $\U^\Tx_{t, k}$, and checking the non-membership of nullifiers for every transaction.
+
+Next, the public key tree $\Tree^\Pk_{t}$ is built by inserting $\Pk_{t, k}$ to the tree if the user provides a valid proof and $\bot$ otherwise.
+The nullifier tree $\Tree^\Nullifier_{[t - 1]}$ is also updated to $\Tree^\Nullifier_{[t]}$, with nullifiers in validated transactions as the new leaves.
+Here, to enable non-membership proofs for nullifiers, the nullifier tree is instantiated as an \textit{interval} Merkle tree~\footnote{\url{https://hackmd.io/@alxiong/imt}} whose leaves are intervals between adjacent sorted nullifiers.
+To insert a new nullifier $\Nullifier^\In_{t, k, i}$, there must be an interval $(lb, ub)$ in the nullifier tree such that $lb < \Nullifier^\In_{t, k, i} < ub$, and the insertion is done by removing the old interval and inserting two new intervals $(lb, \Nullifier^\In_{t, k, i})$ and $(\Nullifier^\In_{t, k, i}, ub)$.
+
+The aggregator finally folds $\W^\Tx_{t, k}$ for $k \in [0, l - 1]$ into an accumulated witness $\widetilde{\W}_t$ and generates the block proof $\pi^\Block_t$.
+While it is possible for the aggregator to construct a monolithic circuit for this purpose, we aim to reduce its memory burden and make our design more practical.
+A straightforward improvement is to use a \textit{non-uniform \ac{PCD}} scheme to aggregate user proofs and prove tree updates.
+Here, \ac{PCD} is required because we handle user proofs (external computation results from other nodes) and aggregator trees (local computation results) simultaneously, while \ac{IVC} is a linear structure with local computation only.
+In addition, non-uniformity is introduced since external computation and local computation are different.
+
+We observe that it is possible to design an even better solution by using \textit{uniform \ac{IVC}}, which is more lightweight than \textit{non-uniform \ac{PCD}}.
+The core idea behind this solution is to accumulate external computation and local computation separately, so that each chain of computation follows the structure of uniform \ac{IVC}.
+We then link these two chains of computation to ensure that the same assignments are used for shared variables of external and local computation.
+
+More specifically, the witness-instance pair $(\widetilde{\W}, \widetilde{\U})$ is solely for the accumulation of user proofs, while we use a new witness-instance pair $(\W^\Block, \U^\Block)$ for the recursive proof of Merkle tree updates.
+The folding of $(\w^\Tx, \u^\Tx)$ into $(\widetilde{\W}, \widetilde{\U})$ is further verified when updating the latter pair, so that we can guarantee the shielded transaction implied in $\u^\Tx.x$ is the same as the one used for updating the public key and nullifier trees.
+Below we summarize the steps that the aggregator needs to follow during accumulation.
+\begin{enumerate}
+    \item Initialize witness-instance pairs $(\widetilde{\W}_{t, 0}, \widetilde{\U}_{t, 0}) \coloneqq (\bot, \bot), (\W^\Block_{t, 0}, \U^\Block_{t, 0}) \coloneqq (\bot, \bot), (\w^\Block_{t, 0}, \u^\Block_{t, 0}) \coloneqq (\bot, \bot)$
+    \item For each sender public key $\Pk_{t, k}$, shielded transaction $\TxShielded_{t, k}$, and transaction proof $\pi^\Tx_{t, k} \coloneqq (\W^\Tx_{t, k}, \U^\$_{t, k}, \u^\Tx_{t, k}, \pi_{t, k})$:
+    \begin{enumerate}
+        \item $\U^\Tx_{t, k} \coloneqq \NIFSVerify(\Vk, \U^\$_{t, k}, \u^\Tx_{t, k}, \pi_{t, k})$
+        \item $(\widetilde{\W}_{t, k + 1}, \widetilde{\U}_{t, k + 1}) \coloneqq \NIFSProve(\Ak, (\widetilde{\W}_{t, k}, \widetilde{\U}_{t, k}), (\W^\Tx_{t, k}, \U^\Tx_{t, k}))$
+        \item $(\W^\Block_{t, k + 1}, \U^\Block_{t, k + 1}) \coloneqq \NIFSProve(\Ak, (\W^\Block_{t, k}, \U^\Block_{t, k}), (\w^\Block_{t, k}, \u^\Block_{t, k}))$
+        \item Evaluate augmented circuit for the step circuit $\Fn^\Block$ (~\Cref{alg:block-circuit}) on input $z = (\widetilde{\U}_{t, k}, \dots)$
+        \item Construct $(\w^\Block_{t, k + 1}, \u^\Block_{t, k + 1})$ by extracting the augmented circuit's assignments from its execution trace
+    \end{enumerate}
+\end{enumerate}
+
+After the aforementioned steps, the aggregator will obtain the final $(\widetilde{\W}_{t, l}, \widetilde{\U}_{t, l})$, $(\W^\Block_{t, l}, \U^\Block_{t, l})$, and $(\w^\Block_{t, l}, \u^\Block_{t, l})$.
+This \ac{IVC} proof will then be compressed into a fully succinct and zero-knowledge proof $\pi^\Block_t$ with a \ac{zkSNARK}.
+During the compression, the aggregator additionally proves that the block tree root is updated from $\Root^\Block_{[t - 1]}$ to $\Root^\Block_{[t]}$ by inserting the block header $\mathsf{header}_t$ which contains new roots of committed \ac{UTXO} tree, public key tree, and nullifier tree.
+Finally, the block $\Block_t$ is submitted to the rollup contract along with the proof $\pi^\Block_t$.
+
+\begin{algorithm}[!ht]
+    \DontPrintSemicolon
+    \caption{Step circuit for $R^\Block$}\label{alg:block-circuit}
+    \Circuit{$\Fn^\Block(z = (k, \Root^{\overline{\Utxo}}_{t}, \Root^\Pk_{t}, \Root^\Nullifier_{[t], [s]}, \Root^\Block_{[t - 1]}, \widetilde{\U}_t), w = (k', \U^{\$}_{t, k}, \u^\Tx_{t, k}))$}{
+        $(\Pk_{t, k}, \TxShielded_{t, k}, \{\Root^\Block_i\}^{m-1}_{i=0}) \coloneqq \u^\Tx_{t, k}.x$\;
+
+        $(\{ \Nullifier^\In_{t, k, i} \}^{m - 1}_{i = 0}, \{ \overline{\Utxo}^\Out_{t, k, j} \}^{n - 1}_{j = 0}) \coloneqq \TxShielded_{t, k}$\;
+
+        Receive committed \ac{UTXO} membership proof $\Path^{\overline{\Utxo}}_{t, k}$ as hints from the prover\;
+        \Enforce{$\MerkleVerify(\Root^{\overline{\Utxo}}_{t}, \MerkleSetup(\{ \overline{\Utxo}^\Out_{t, k, j} \}^{n - 1}_{j = 0}), k, \Path^{\overline{\Utxo}}_{t, k}) = 1$}\;
+        Receive sender public key membership proof $\Path^\Pk_{t, k}$ as hints from the prover\;
+        \Enforce{$\MerkleVerify(\Root^\Pk_{t}, \Pk_{t, k}, k, \Path^\Pk_{t, k}) = 1$}\;
+
+        $\Root^\Nullifier_{[t], [s']} \coloneqq \Root^\Nullifier_{[t], [s]}$\;
+
+        \For{$i \in [0, m - 1]$}{
+            Receive range $(lb, ub)$, modification index $x$, modification proof $\Path^\Nullifier_{t, x}$, and addition proof $\Path^\Nullifier_{t, s + i}$ as hints from the prover\;
+
+            \Enforce{$lb < \Nullifier^\In_{t, k, i} < ub$}\;
+            
+            $\Root^\Nullifier_{[t], [s']} \coloneqq \MerkleModify(\Root^\Nullifier_{[t], [s']}, (lb, ub), (lb, \Nullifier^\In_{t, k, i}), x, \Path^\Nullifier_{t, x})$\;
+            $\Root^\Nullifier_{[t], [s']} \coloneqq \MerkleAdd(\Root^\Nullifier_{[t], [s']}, (\Nullifier^\In_{t, k, i}, ub), s + i, \Path^\Nullifier_{t, s + i})$\;
+        }
+
+        \Enforce{$k' > k$}\;
+
+        $\widetilde{\U}'_t \coloneqq \NIFSVerify(\Vk, \widetilde{\U}_t, \U^{\$}_{t, k}, \u^\Tx_{t, k}, \pi^\NIFS_{t, k})$\;
+
+        \KwRet{$z' \coloneqq (k', \Root^{\overline{\Utxo}}_{t}, \Root^\Pk_{t}, \Root^\Nullifier_{[t], [s']}, \Root^\Block_{[t - 1]}, \widetilde{\U}'_t)$}
+    }
+\end{algorithm}
+
+\paragraph{Verification of block (Rollup contract).}
+
+The rollup contract verifies the validity of the block by checking the proof $\pi^\Block_t$.
+If the proof is valid, the rollup contract accepts the block by updating the tree roots stored on-chain and incrementing the nonces for all users with non-$\bot$ public keys in $\Tree^\Pk_{t}$.
+
+\paragraph{Update of balance proofs (Sender \& recipient).}
+
+The sender shares receipts with the recipient, both of whom can subsequently update their local balance proofs by running $\IVCProve$
+for the step circuit $\Fn^\Balance$~\Cref{alg:balance-circuit}.
+
+In Intmax2, users need to generate synchronization proofs, even for blocks where the user has \textit{not} transacted.
+In contrast to this, in a similar vein to \PlasmaFold, users of \Protocol do not need to synchronize for blocks that they are not involved in.
+Instead, the balance proof will accumulate all relevant blocks into a chained hash value $h$.
+This allows users to later show separately that these blocks are included in the newest block tree, without needing to keep immediate balance proofs up-to-date for every block.
+
+\begin{algorithm}[!ht]
+    \DontPrintSemicolon
+    \caption{Step circuit for $R^\Balance$}\label{alg:balance-circuit}
+    \Circuit{$\Fn^\Balance(z = (\Balance, \Nonce, \Pk, t, k, h), w = (t', k', \Pk_{t', k'}, \TxShielded_{t', k'}))$}{
+        \Enforce{$t' \mathbin{||} k' > t \mathbin{||} k$}\;
+
+        $(\{ \Nullifier^\In_{t', k', i'} \}^{m - 1}_{i' = 0}, \{ \overline{\Utxo}^\Out_{t', k', j'} \}^{n - 1}_{j' = 0}) \coloneqq \TxShielded_{t', k'}$\;
+
+        $\Root^\Utxo_{t', k'} \coloneqq \MerkleSetup(\{ \overline{\Utxo}^\Out_{t', k', j'} \}^{n - 1}_{j' = 0})$\;
+
+        Receive committed \ac{UTXO} tree root $\Root^{\overline{\Utxo}}_{t'}$ and membership proof $\Path^{\overline{\Utxo}}_{t', k'}$ as hints from the prover\;
+        \Enforce{$\MerkleVerify(\Root^{\overline{\Utxo}}_{t'}, \Root^\Utxo_{t', k'}, k', \Path^{\overline{\Utxo}}_{t', k'}) = 1$}\;
+
+        Receive public key tree root $\Root^\Pk_{t'}$ and membership proof $\Path^\Pk_{t', k'}$ as hints from the prover\;
+        \Enforce{$\MerkleVerify(\Root^\Pk_{t'}, \Pk_{t', k'}, k', \Path^\Pk_{t', k'}) = 1$}\;
+
+        Accumulate currently processed block\;
+        $h' \coloneqq H(h, (\Root^{\overline{\Utxo}}_{t'}, \Root^\Pk_{t'}))$\;
+
+        $\Balance' \coloneqq \Balance$\;
+
+        \If{$\Pk_{t', k'} = \Pk$}{
+            \For{$j' \in [0, n - 1]$}{
+                Receive output \acp{UTXO} $\Utxo_{t', k', j'}$ and opening $\rho_{t', k', j'}$ as hints from the prover\;
+                \Enforce{$\overline{\Utxo}_{t', k', j'} \coloneqq \CMCommit(\Ck, \Utxo_{t', k', j'}; \rho_{t', k', j'})$}\;
+                \If{$\Utxo_{t', k', j'}.\Pk \neq \Pk$}{
+                    $\Balance' \coloneqq \Balance' - \Utxo_{t', k', j'}.\Amount$\;
+                }
+            }
+            $\Nonce' \coloneqq \Nonce + 1$\;
+        }\Else{
+            \For{$j' \in [0, n - 1]$}{
+                Receive output \acp{UTXO} $\Utxo_{t', k', j'}$ and opening $\rho_{t', k', j'}$ as hints from the prover\;
+                \If{$\Utxo_{t', k', j'}.\Pk = \Pk$}{
+                    \Enforce{$\overline{\Utxo}_{t', k', j'} \coloneqq \CMCommit(\Ck, \Utxo_{t', k', j'}; \rho_{t', k', j'})$}\;
+                    $\Balance' \coloneqq \Balance' + \Utxo_{t', k', j'}.\Amount$\;
+                }
+            }
+            $\Nonce' \coloneqq \Nonce$\;
+        }
+
+        \KwRet{$z' \coloneqq (\Balance', \Nonce', \Pk, t', k', h')$}
+    }
+\end{algorithm}
+
+\subsubsection{Exit flow}
+
+The exit flow is the procedure for a user to leave \Protocol and withdraw their funds.
+It only involves the user and the rollup contract.
+This ensures the liveness of users' funds, as users can always exit by themselves without relying on the aggregator, e.g., in case the aggregator goes offline or maliciously drops the user's transaction.
+
+In order to exit, the user needs to reveal their balance to the rollup contract.
+This can be done by submitting the balance proof $\pi^\Balance$, which is verified by the rollup contract against the latest block tree root and the user's nonce.
+Specifically, to address the potential issue of user balance proofs being ``outdated'' due to the production of new blocks, we can either ask the user to generate another proof that shows each block accumulated in $h$ is included in the latest block tree, or we can offload these membership checks to the rollup contract by revealing the preimages of $h$.
+
+If the proof is valid, the corresponding amount of coins will be transferred to the user's \ac{L1} address \Address, after which the user's \ac{L2} public key and nonce will be removed from the rollup contract's state.
+
+\subsection{Discussions on optimizations and extensions}
+
+Having presented the core construction of \Protocol, we now discuss several design choices, practical optimizations, and extensions that complement the main protocol.
+
+\paragraph{Implication of not hiding transaction senders.}
+
+While \Protocol hides the amount and recipient of each transaction, the sender's public key is revealed for data availability: without it, the user cannot verify whether their endorsed transaction was included in a block.
+This leaks when and how often a user transacts, even though amounts and recipients remain confidential.
+Stronger sender privacy could be achieved by removing the public key tree and nonces, at the cost of a more fragile data availability setup that would require trust assumptions on the aggregator or more complex mechanisms to guarantee transaction inclusion.
+
+\paragraph{Decentralized aggregators and horizontal scaling.}
+A straightforward deployment of \Protocol involves a single aggregator responsible for collecting transactions, building blocks, and generating proofs.
+This creates a single point of failure and limits the system's scalability, as the aggregator's computational resources and network bandwidth become bottlenecks.
+
+To minimize trust and burden on the aggregator, one can extend \Protocol to support multiple aggregators working together in a distributed and decentralized manner.
+Here we consider a setup with multiple layers of aggregators: the first layer is responsible for collecting transactions and folding transaction proofs, the second layer is responsible for folding folded proofs from the first layer and propagating them to the third layer, and so on until the final layer generates the block proof for the rollup contract.
+The selection of aggregators for each layer can be done through a decentralized protocol, such as a stake-based selection mechanism, to ensure fairness and security.
+
+In this setup, user transactions are handled in parallel, and the block proof generation workload is distributed across the network, significantly improving the system's throughput and resilience against aggregator failures or attacks.
+However, since different blocks are now built by different aggregators, additional mechanisms are needed to ensure consistent views among aggregators and to synchronize persistent \ac{L2} state, especially the nullifier tree, which may incur communication overhead.
+For instance, if we require the aggregators to include all nullifiers in the block body and post them on \ac{L1}, the theoretical throughput will be decreased, and the concrete implications are discussed in~\Cref{sec:evaluation}.
+
+\paragraph{Deposits and withdrawals.}
+
+Since deposits and withdrawals can be treated as special transactions from and to the rollup contract, they can be integrated into \Protocol with minimal modifications to the transaction flow. 
+
+To deposit, the user first locks coins on the \ac{L1} by sending a transaction with the corresponding amount to the rollup contract.
+Then the user starts the transaction flow and creates a shielded transaction with no input \acp{UTXO} and one or more output \acp{UTXO} to claim the deposited funds on \ac{L2}.
+We also need to relax $R^\Tx$, so that when there is no input, the nullifier and public key checks are bypassed.
+In addition, the balance check in this case is modified to ensure that the sum of output amounts equals the claimed amount of the deposit revealed by the user to the aggregator.
+When proposing a new block, the aggregator further sends the claimed amount and the user's public key to the rollup contract, which verifies the deposit and clears the user's pending deposit by checking the block proof and the claim against the deposited amount on \ac{L1}.
+
+To withdraw, the user engages in the transaction flow by first creating a shielded transaction with one output \ac{UTXO} whose recipient is the rollup contract.
+When proving transaction validity, no modifications are made to $R^\Tx$, since the user only needs to open that committed output \ac{UTXO}.
+Consequently, the aggregator can extract the withdrawal amount and post it along with the sender's \Pk to the rollup contract, which credits the withdrawer's \ac{L1} address upon successful verification.
+
+\paragraph{Epochs.}
+
+By default, \Protocol checks membership of input \acp{UTXO} against a single, ever-growing block tree that spans all historical blocks.
+For practical size bounds (e.g., $2^{32}$ leaves), proof generation is already efficient, but it is possible to further reduce the user's proving cost and the proof size when full anonymity is not required.
+
+The idea is to partition the block history into fixed-size \textit{epochs}: an epoch ends when its block tree reaches a predetermined maximum height, and a new, empty block tree is started for the next epoch.
+When spending a \ac{UTXO} from a previous epoch, the user proves membership against that epoch's block tree and reveals the epoch index to the aggregator, who in turn demonstrates to the rollup contract that the epoch appears in the list of finalized epochs.
+
+Epochs act as \textit{anonymity sets}: a transaction proof references a particular block tree root, so the set of blocks under that root bounds the anonymity set for the consumed \acp{UTXO}.
+Larger epochs (taller block trees) yield larger anonymity sets at the cost of bigger circuits, offering a tunable tradeoff between privacy and efficiency.
+
+
+\paragraph{Block compression.}
+
+In addition to proof compression via a decider SNARK, we can further reduce the on-chain data size by compressing the block body.
+Note that, to update users' nonces, the rollup contract needs to learn the public keys of all senders with valid endorsements in the block, each of which is typically 256 bits to achieve 128-bit security in hash or elliptic curve-based designs.
+
+One optimization without utilizing an additional data availability layer is to apply Intmax2's short ID technique~\cite{cryptoeprint:2023/1082}, which associates the public key of each user with a compact (e.g., 32-bit) identifier $\Id$ when they enroll.
+The aggregator can then compress the block body by replacing public keys with their corresponding identifiers, and the rollup contract can later update users' nonces with the identifiers.
+

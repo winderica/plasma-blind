@@ -1,0 +1,33 @@
+
+\begin{algorithm}[!ht]
+  \DontPrintSemicolon
+    \caption{User circuit. We highlight auxiliary \Witness{witness} values.}\label{alg:user-circuit}
+    \Circuit{$\ivccircuit{}{user}(\vec{z}_i)$}{
+    $(bal_{i}, nonce_{i}, \Pk, t_{i - 1}, pos_{i - 1}, \blockacc{i}) \coloneqq \vec{z}_i$\;
+    
+    \Enforce{$\Witness{t_{i}} \geq t_{i - 1}$}\;
+    
+    \If{$\Witness{t_{i}} = t_{i - 1}$}{
+        \Enforce{$\Witness{pos_{i}} > pos_{i - 1}$}\;
+    }
+
+    % check that the utxo is in the settled UTXO tree
+    \Enforce{$\Merkle.\Verify(\Witness{\settledutxotreeroot{t_{i}}}, \Witness{(1, \Utxo)}, \Witness{pos_{i}}, \Witness{\Path^\mathsf{utxo}})$}\;
+
+    $bal_{i+1} \coloneqq bal_{i}$\;
+    $nonce_{i+1} \coloneqq nonce_{i}$\;
+    
+    \If{$\Utxo^\In.\Pk = \Pk$}{
+        $bal_{i + 1} \coloneqq bal_{i + 1} - \Utxo^\In.a$\;
+        $nonce_{i + 1} \coloneqq nonce_{i + 1} + 1$\;
+    }
+    
+    \If{$\Utxo^\Out.\Pk = \Pk$}{
+        $bal_{i + 1} \coloneqq bal_{i + 1} + \Utxo^\Out.a$\;
+    } 
+    
+    $\blockacc{i+1} \gets H(\blockacc{i}, H(\Witness{t_{i}}, \Witness{\settledutxotreeroot{t_{i}}}, \Witness{\nullifiertreeroot{t_i}}))$\;%\Comment*[r]{Forces to use correct blocks only}
+    
+    \KwRet{$\vec{z}_{i + 1} \coloneqq (bal_{i + 1}, nonce_{i + 1}, \Pk, \Witness{t_{i}}, \Witness{pos_{i}}, \blockacc{i + 1})$}
+}
+\end{algorithm}

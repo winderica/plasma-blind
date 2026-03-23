@@ -1,0 +1,7 @@
+\documentclass[../main.tex]{subfiles}
+
+\begin{document}
+
+Once \txtree{t} is built, the aggregator proposes to transaction senders the root \txtreeroot{t} for the transaction tree at block \block{t}. The proposal that senders receive also contains \merklepathtxtree{t}[id], a merkle inclusion proof for their corresponding $id$ and transaction within \txtree{t}. Transaction senders acknowledge receiving and checking the proposal for \txtreeroot{t} by sending back to the aggregator \sign{\txtreeroot{t}, id}, i.e. their signature over the proposed transaction tree root. We call this procedure \signsend.
+
+\end{document}

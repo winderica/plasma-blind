@@ -1,0 +1,11 @@
+\documentclass[../main.tex]{subfiles}
+
+\begin{document}
+
+Upon receiving $n$ transactions from PlasmaFold users, the aggregator builds a transaction tree \txtree{t} for block $t$. The transaction tree is composed of leaves whose values are  transaction hashes computed using \txcrh. The size of $\mathcal{T}^{\text{tx}}$ is fixed. It equals the number of sender indexes the aggregator will post on the L1.
+
+For each transaction, the aggregator removes each of the transaction input UTXO and inserts each of the corresponding transaction's output UTXO to obtain \utxotree{t}. Before obtaining the final \utxotreeroot{t}, the aggregator keeps each intermediary UTXO tree root \utxotreeroot{t}[i] resulting from insertion and deletion operations. It will use those intermediary roots as auxiliary inputs for each IVC step. 
+
+Similarly, the aggregator records all intermediary root \txtreeroot{t}[i] resulting from inserting each transaction within \txtree{t}. It will use those intermediary roots as auxiliary inputs into the aggregator IVC prover. Note that the aggregator only sends \txtreeroot{t}, the final transaction tree root proposed for \block{t}, to transaction senders. We name \preparetrees the procedure of preparing both \txtree{t} and \utxotree{t} and storing their intermediary roots.
+
+\end{document}

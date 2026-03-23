@@ -1,0 +1,90 @@
+
+In this section, we provide a high-level overview of \Protocol via a progression of increasingly refined constructions.
+Starting from a naive \ac{L2} design, we identify shortcomings and address them step by step, introducing the cryptographic tools that motivate our final protocol along the way.
+
+\paragraph{Strawman 1: a naive design with scalability and privacy.}
+We consider an \ac{L2} construction that naively combines existing scalability and privacy solutions.
+In this setting, there are many users on the \ac{L2} who wish to transact with each other, and a rollup contract on the \ac{L1} that enforces the correctness of the \ac{L2} state.
+
+For scalability, an \textit{aggregator} collects transactions from users, assembles them into compressed \textit{blocks}, and submits each block to the rollup contract.
+Different design families, such as rollups, plasma, and validium, vary in their data availability and security tradeoffs, but in all cases the aggregator must additionally demonstrate that the new state digest faithfully reflects the execution of all transactions in the block, either via a fraud proof or a validity proof.
+
+For privacy, users send \textit{shielded transactions} whose contents are hidden instead of their plaintext transaction data.
+Each shielded transaction must be accompanied by a zero-knowledge proof of transaction validity (i.e., that the sender owns the spent funds, no double-spending occurs, etc.) without revealing amounts or participants.
+The use of zero-knowledge proofs for cryptocurrencies was pioneered by Zerocoin~\cite{SP:MGGR13}. It was later refined by Zerocash~\cite{SP:BCGGMT14} and subsequent works~\cite{AC:FMMO19,FC:BAZB20,SP:Diamond21,ESORICS:ChaBal21,ASIACCS:CamHal22,SP:GKPH24,AC:MadSca25,EPRINT:SKKK25} in terms of efficiency and functionality.
+
+In these protocols, transactions are defined within two main models: the \textit{UTXO-based model} and the \textit{account-based model}.
+This work focuses on the \ac{UTXO}-based model, where each (transparent) transaction consumes existing \acp{UTXO} and creates new ones.
+To shield such transactions, consumed \acp{UTXO} are replaced by \textit{nullifiers}, which are unique, deterministic tags that prevent double-spending without revealing which output is consumed.
+In addition, created output \acp{UTXO} are replaced by cryptographic \textit{commitments} binding to the amounts and recipients while hiding their concrete values.
+
+On the other hand, the account-based model defines transactions as updates to account balances.
+A typical approach to hiding transactions in this model is proposed in (Anonymous) Zether~\cite{FC:BAZB20}, where balances are encrypted and homomorphically updated by each transaction.
+However, this approach leaks transaction patterns and requires computational overhead at least linear in the anonymity set to mitigate them.
+
+To efficiently prove that a transaction is consistent with the current \ac{L2} state, the rollup contract maintains a succinct state digest via a \textit{cryptographic accumulator}~\cite{EC:BendMa93} (e.g., Merkle trees~\cite{C:Merkle87} or RSA accumulators~\cite{EC:BarPfi97}), allowing users to generate proofs against the on-chain digest without accessing the entire state.
+
+While Strawman 1 achieves both privacy and scalability in principle, two practical bottlenecks remain.
+First, generating transaction validity proofs typically requires a general-purpose \ac{zkSNARK} prover for circuit satisfiability~\cite{EC:Groth16,EPRINT:GabWilCio19}, which incurs high computational cost on the client side.
+Second, the aggregator must aggregate all transaction validity proofs into a single block validity proof, which remains costly even with existing techniques such as SnarkPack~\cite{FC:GaiMalNit22}.
+These bottlenecks are evident in deployed systems: for example, the \ac{AZTEC} protocol suffers from high aggregation costs (60 GB of RAM) and low throughput (0.2 TPS in their testnet) \footnote{\url{https://blog.zkcloud.com/p/what-does-it-take-to-prove-aztecs}}.
+Similarly, Nightfall~\cite{nightfall4} requires 144 CPU cores and 750GB of RAM to build blocks composed of 64 transactions.
+
+\paragraph{Strawman 2: utilizing proof composition.}
+
+A standard technique to reduce the cost of proof aggregation is to use \ac{IVC}~\cite{TCC:Valiant08} and \ac{PCD}~\cite{ITCS:ChiTro10}.
+\ac{IVC} allows a prover to repeatedly apply a fixed step function to an evolving state and produce a proof that the entire chain of computations is correct, regardless of the number of steps.
+\ac{PCD} generalizes this to distributed computations with a tree-like or DAG-shaped structure, where multiple independent provers contribute proofs that can be recursively composed into a single proof.
+
+Applied to our setting, the aggregator can use \ac{IVC} or \ac{PCD} to incrementally incorporate user proofs as they arrive, rather than waiting for the entire block before starting aggregation.
+Moreover, each composition step typically incurs a low recursive overhead, making it much cheaper than the brute-force approach of naively encoding the entire proof verification algorithm as a circuit.
+
+However, two issues remain with this approach.
+First, users must still generate a (zero-knowledge) \ac{IVC} or \ac{PCD} proof on the client side, which imposes computational overhead and is impractical for users with limited hardware resources.
+Second, achieving high throughput requires the aggregator to maintain a stateful architecture in which it must prove both the validity of user proofs \textit{and} the correctness of \ac{L2} state transitions.
+This can be abstracted as the task of generating a proof that attests to both local execution and external proof verification at each step, naturally leading to a tree-like computation structure that \ac{IVC} (which only supports linear composition) cannot express, thus requiring the more general but expensive \ac{PCD} machinery.
+The problem is further compounded by the fact that local execution (\ac{L2} state updates) and external proof verification (transaction validity) involve circuits of different shapes, resulting in \textit{non-uniform} computation that makes the \ac{PCD} even more costly.
+
+Some constructions, such as Intmax2, further push the idea of proof composition to the client side to minimize the aggregator's workload. However, this exacerbates the first issue by requiring users to generate even more complex proofs.
+Specifically, users in Intmax2 are responsible for maintaining their transaction state, and when the sender transfers funds to a recipient, the sender must generate a proof showing the transaction history behind the funds is valid.
+Also, the recipient needs to use \ac{PCD} to combine the sender's proof with their own proof of transaction history and obtain an updated proof of the new transaction state.
+
+\paragraph{Final construction: maximizing efficiency with folding.}
+
+We take a different approach and address both issues by leveraging \textit{folding schemes}~\cite{C:KotSetTzi22}.
+A folding scheme allows two instance-witness pairs for the same circuit to be ``folded'' into a single pair that remains satisfying, and this folding operation is much cheaper than generating a full proof.
+
+A key observation in~\cite{C:KotSet24} is that some folding schemes are \textit{blinding}: when a satisfying instance-witness pair is folded with a uniformly random pair, the result reveals no information about the original witness.
+This property can be utilized to make client-side proving more efficient.
+A user who holds a satisfying witness of the transaction validity circuit simply folds it with a fresh random pair; the output serves as a zero-knowledge proof of knowledge of the original witness, without ever invoking a full \ac{zkSNARK} or zero-knowledge \ac{IVC} prover.
+This directly resolves the first issue from Strawman 2: users only evaluate the transaction validity circuit and perform a single folding step, achieving much lower client-side proving costs.
+
+To resolve the second issue of Strawman 2, we design a proof aggregation architecture that avoids naive non-uniform \ac{PCD}.
+The core idea is to decompose the aggregator's workload into two independent but linked \ac{IVC} chains, each with a \textit{uniform} step function.
+The first chain handles user proof aggregation: upon receiving a transaction validity proof (a rerandomized instance-witness pair), the aggregator folds it into a running accumulated pair.
+The second chain handles \ac{L2} state updates: the aggregator executes the state transition circuit for the corresponding transaction and folds the witness-instance pair for the execution into a separate running accumulated pair.
+To ensure consistency between the two chains, the state update circuit is augmented to verify that the user proof folded in the first chain corresponds to the \textit{same transaction} used for the state update in the second chain.
+This linking mechanism ties the two uniform \ac{IVC} chains together, achieving the expressiveness of non-uniform \ac{PCD} without its overhead.
+
+As an additional benefit, folding schemes enable instant exits for users.
+When a user wishes to exit the \ac{L2} and withdraw their funds back to the \ac{L1}, they need to provide a proof of their current balance.
+Instead of generating the proof from scratch when exiting, users can locally maintain a balance proof and efficiently update the proof after each transaction by using folding-based IVC.
+
+As a concrete instantiation, we present \Protocol, which realizes the above design in the \ac{UTXO} model.
+Built upon \PlasmaFold~\cite{cryptoeprint:2025/1300}, which combined Intmax2's on-chain data minimization with folding-based \ac{IVC} for efficient aggregation in a non-private setting, \Protocol further adds sender-receiver unlinkability and confidentiality of transaction amounts by utilizing the Nova folding scheme~\cite{C:KotSetTzi22} and its BlindFold extension~\cite{C:KotSet24} for efficient client-side proving and proof aggregation.
+Nova achieves support for \ac{R1CS} witnesses and instances by introducing a variant, the committed relaxed \ac{R1CS}, where a satisfying witness-instance pair $(\W = (w, e, r_w, r_e), \U = (\overline{w}, \overline{e}, u, x))$ must satisfy the R1CS structure $A, B, C$ if $A z \circ B z - C \cdot z = e$ for $z = (u, x, w)$, and $\overline{w}$ and $\overline{e}$ must be commitments to $w$ and $e$ with randomness $r_w$ and $r_e$ respectively.
+The original R1CS witness-instance pair $(\w = w, \u = x)$ can thus be regarded as a special case of the committed relaxed R1CS with $u = 1$ and $e = 0$.
+
+In an interactive setting of Nova, a prover and a verifier fold two witness-instance pair $(\W_1 = (w_1, e_1, r_{w_1}, r_{e_1}), \U_1 = (\overline{w}_1, \overline{e}_1, u_1, x_1))$ and $(\W_2 = (w_2, e_2, r_{w_2}, r_{e_2}), \U_2 = (\overline{w}_2, \overline{e}_2, u_2, x_2))$ as follows.
+The prover computes $z_i = (u_i, x_i, w_i)$ and sends to the verifier a commitment $\overline{t}$ to the cross-term $t = A z_1 \circ B z_2 + A z_2 \circ B z_1 - u_1 C z_1 - u_2 C z_2$ with randomness $r_t$, and the verifier responds with a random challenge $\rho$.
+Then both parties compute the folded instance $\U$ as $\overline{w} = \overline{w}_1 + \rho \overline{w}_2, \overline{e} = \overline{e}_1 + \rho \overline{t} + \rho^2 \overline{e_2}, u = u_1 + \rho u_2, x = x_1 + \rho x_2$.
+The prover further computes the folded witness $\W$ as $w = w_1 + \rho w_2, r_w = r_{w_1} + \rho r_{w_2}, e = e_1 + \rho t+ \rho^2 e_2, r_e = r_{e_1} + \rho r_t + \rho^2 r_2$.
+
+By observing that Nova is a blinding folding scheme, NovaBlindFold achieves zero-knowledge by folding a satisfying instance-witness pair $(\w, \u)$ with a randomly sampled $(\W^\$, \U^\$)$.
+The folded witness $\W$ does not reveal any information about $\w$, while the satisfiability of $\w$ and $\u$ can be verified by folding $\u$ and $\U^\$ $ and checking that $\W$ and the resulting $\U$ are satisfying.
+
+
+\Protocol further adopts Intmax2's~\cite{cryptoeprint:2023/1082} data availability and block compression design to minimize data posted on-chain.
+In this design, one round of interaction between the aggregator and the sender is required.
+Having received a shielded transaction from a sender, the aggregator needs to first return a \textit{receipt} containing \ac{L2} state relevant to the transaction (Merkle proofs in our case).
+Only after this will the sender reply with an \textit{endorsement} (transaction validity proofs in our case), without which the aggregator cannot include the transaction in a block.

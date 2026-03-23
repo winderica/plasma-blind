@@ -1,0 +1,44 @@
+
+
+\begin{algorithm}[!ht]
+  \DontPrintSemicolon
+  \caption{Aggregator circuit. We highlight auxiliary \Witness{witness} values.}\label{alg:aggregator-circuit}
+  \Circuit{$\ivccircuit{}{agg}(\vec{z}_i)$}{
+    $(\utxotreeroot{t}[i], \txtreeroot{t}[i], \txtreeroot{t}, r^\mathsf{signer}_{t, i}, \signeracc{t}[i], \depositacc{t}[i], \withdrawacc{t}[i]) \coloneqq \vec{z}_i$\; 
+
+    $\left(\Utxo^\In, \Utxo^\Out \right) \coloneqq \Witness{\Tx}$\;
+    \Enforce{$\Utxo^\In.\Amount = \Utxo^\Out.\Amount$}\;
+
+    \Enforce{$\Utxo^\In.\Pk = \Witness{ \Pk^\mathsf{sender}}$}\;        
+    
+    \Enforce{$\Merkle.\Verify(\utxotreeroot{t}[i], \Utxo^\In, \Witness{\Path^{\mathsf{utxo}}})$}\;
+
+    $\txtreeroot{t}[i+1] \gets \Merkle.\Update(\txtreeroot{t}[i], \Witness{\Tx}, i)$\;
+
+    $\utxotreeroot{t}[i+1] \coloneqq \utxotreeroot{t}[i]$\;
+    \If{$\SigVerify(\Witness{\Pk^\mathsf{sender}}, \txtreeroot{t} \concat \Witness{\Tx}, \Witness{\sigma}) = 1 \lor \Witness{\Pk^\mathsf{sender}} = \Pk^\mathsf{rollup}$}{
+    
+        \If{$\Utxo^\In.\Pk = \Pk^\mathsf{rollup}$}{
+            $\depositacc{t}[i + 1] \gets H(\depositacc{t}[i], (\Utxo^\Out.\Pk, \Utxo^\In.\Amount))$
+        }\Else{
+            $\utxotreeroot{t}[i+1] \gets \Merkle.\Delete(\utxotreeroot{t}[i+1], \Utxo^\In)$
+        }
+        \If{$\Utxo^\Out.\Pk = \Pk^\mathsf{rollup}$}{
+            $\withdrawacc{t}[i + 1] \gets H(\withdrawacc{t}[i], (\Witness{\Pk^\mathsf{sender}}, \Utxo^\Out.\Amount))$
+        }\Else{
+            $\utxotreeroot{t}[i+1] \gets \Merkle.\Add(\utxotreeroot{t}[i+1], \Utxo^\Out)$
+        }
+    
+        $r^\mathsf{signer}_{t, i + 1} \gets \Merkle.\Update(r^\mathsf{signer}_{t, i}, \Witness{\Pk^\mathsf{sender}}, i)$\;
+        
+        $\signeracc{t}[i+1] \gets H(\signeracc{t}[i], \Witness{\Pk^\mathsf{sender}})$\;
+        
+    }\Else{
+        $\signeracc{t}[i+1] \gets H(\signeracc{t}[i], \bot)$\;
+    }
+
+
+    \KwRet{$\vec{z}_{i + 1} \coloneqq (\utxotreeroot{t}[i+1], \txtreeroot{t}[i+1], \txtreeroot{t}, r^\mathsf{signer}_{t, i + 1}, \signeracc{t}[i+1], \depositacc{t}[i + 1], \withdrawacc{t}[i + 1])$}
+  }
+
+\end{algorithm}

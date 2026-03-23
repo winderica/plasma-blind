@@ -1,0 +1,277 @@
+
+We implement \Protocol in Rust based on the \texttt{sonobe}\footnote{\url{https://github.com/privacy-ethereum/sonobe}} folding library.
+Subsequently, we benchmark the implementation to evaluate \Protocol in terms of client-side proving costs, transaction proof sizes, aggregator performance, and end-to-end throughput.
+
+\paragraph{Benchmark setup.}
+We run client-side proving benchmarks on a MacBook Pro with an Apple M1 Max CPU and 32\,GB of RAM and aggregator benchmarks on a Linux PC with an Intel i9-12900K CPU and 64\,GB of RAM.
+We benchmark $m$-to-$n$ shielded transactions with $m = n = 2$ and $m = n = 4$ input/output \acp{UTXO}.
+We instantiate hash functions used in \Protocol with two SNARK-friendly hash functions: Poseidon~\cite{USENIX:GKRRS21} and Griffin~\cite{C:GHRSWW23}.
+While the security of Griffin has been questioned~\cite{C:BBLAOP24,EPRINT:CamRoy25} recently, the figures we report are still representative of safer alternatives with similar efficiency~\cite{EPRINT:BoePer25}.
+
+For Merkle trees, we adopt 4-ary trees for blocks, committed \acp{UTXO}, and public keys, which reduces the number of hashes per Merkle proof and hence the prover time and proof size.
+We set the committed \ac{UTXO} and public key trees to height~7 such that, excluding the root node level, they can contain up to $4^{6} = 4096$ committed \acp{UTXO}.
+
+\paragraph{Client-side proving costs.}
+\Cref{tab:client-bench} reports the client-side prover time for generating transaction validity proofs
+($R^\Tx$ circuit synthesis followed by BlindFold proof generation) and updating balance proofs (\ac{IVC} for $R^\Balance$ circuit).
+We can observe that Griffin is roughly 1/3 faster than Poseidon across all configurations for transaction validity proofs.
+Moreover, the prover time for proving the validity of $2$-to-$2$ transactions is about half of that for $4$-to-$4$ transactions, which is expected as the circuit is dominated by validity checks for input and output \acp{UTXO}.
+On the other hand, the prover time for balance proof updates is less sensitive to the choice of hash function and the number of inputs and outputs, because the most costly components are now the \ac{IVC}'s recursive overhead and the handling of CycleFold~\cite{EPRINT:KotSet23b} instances.
+
+\begin{table*}[!ht]
+  \centering
+  \small
+  \renewcommand*{\arraystretch}{1.1}
+  \renewcommand*{\cmidrulesep}{0}
+  \renewcommand*{\aboverulesep}{0pt}
+  \renewcommand*{\belowrulesep}{0pt}
+  \makebox[\textwidth][c]{
+    \begin{NiceTabular}{lcccc}[
+      caption = {Client-side prover performance for the generation of transaction proofs and the update of balance proofs.},
+      label = {tab:client-bench}
+    ]
+        \toprule
+      \textbf{Operation} & \makecell{\textbf{Griffin} \\ ($m{=}n{=}2$)} & \makecell{\textbf{Poseidon} \\ ($m{=}n{=}2$)} & \makecell{\textbf{Griffin} \\ ($m{=}n{=}4$)} & \makecell{\textbf{Poseidon} \\ ($m{=}n{=}4$)} \\
+        \midrule
+        Prove transaction validity  & 32.806\,ms & 51.830\,ms & 60.388\,ms & 94.026\,ms \\
+        Prove balance update  & 43.112\,ms & 45.765\,ms & 46.420\,ms & 48.250\,ms \\
+        \bottomrule
+    \end{NiceTabular}
+  }
+\end{table*}
+
+\paragraph{Transaction proof sizes.}
+Unlike the block proof and the balance proof which can be compressed via the decider SNARK, it is inefficient for users to compress the proof for every transaction due to the large overhead.
+On the other hand, the aggregator needs to collect transaction proofs from all senders in the current block.
+This makes the transaction proof size a key factor for the overall communication cost of \Protocol, and we evaluate its relationship with the block tree height in the epoch-based design.
+
+Recall that in this setting, the block tree height determines the number of blocks per epoch and hence the anonymity set size, while also controlling the size of Merkle inclusion proofs for input \acp{UTXO}.
+With a quaternary block tree of height~$h$, each epoch contains $4^{h-1}$ blocks and can accommodate $4^{h-1} \times 4096$ transactions as the anonymity set.
+\Cref{fig:proof-size-bench} shows how client-side proof size scales with block tree height.
+Proof size grows linearly with height: approximately 11\,KB per height step for Griffin and 18\,KB for Poseidon (for $m{=}n{=}2$).
+At the extremes, the proof ranges from 259\,KB (height~4) to 558\,KB (height~32) for Griffin and from 425\,KB to 939\,KB for Poseidon, with $m{=}n{=}2$.
+For $m{=}n{=}4$, proof sizes roughly double: from 529\,KB to 1127\,KB for Griffin and from 872\,KB to 1901\,KB for Poseidon.
+
+\begin{figure}[!ht]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      xlabel={Block tree height},
+      ylabel={Proof size (KB)},
+      xtick={4,8,12,16,20,24,28,32},
+      legend style={
+        at={(0.03,0.97)},
+        anchor=north west,
+        font=\footnotesize,
+        draw=gray!60,
+        fill=white,
+        fill opacity=0.85,
+        text opacity=1,
+        rounded corners=1.5pt,
+        inner sep=3pt,
+        row sep=1pt,
+      },
+      legend cell align={left},
+      grid=both,
+      grid style={line width=0.2pt, draw=gray!25},
+      major grid style={line width=0.4pt, draw=gray!50},
+      width=\columnwidth,
+      height=6.5cm,
+      x tick label style={font=\footnotesize},
+      y tick label style={font=\footnotesize},
+      xlabel style={font=\small},
+      ylabel style={font=\small},
+      every axis plot/.append style={line width=1.2pt},
+      mark size=2pt,
+    ]
+      % Griffin m=n=2
+      \addplot[tolblue, mark=*, solid] coordinates {
+        (4,259) (5,270) (6,280) (7,291) (8,302)
+        (10,323) (12,344) (16,387) (20,430) (24,473) (28,515) (32,558)
+      };
+      % Griffin m=n=4
+      \addplot[tolblue, mark=o, mark options=solid, dashed] coordinates {
+        (4,529) (5,550) (6,572) (7,593) (8,614)
+        (10,657) (12,700) (16,785) (20,871) (24,956) (28,1042) (32,1127)
+      };
+      % Poseidon m=n=2
+      \addplot[tolred, mark=triangle*, solid, mark size=2.5pt] coordinates {
+        (4,425) (5,443) (6,462) (7,480) (8,498)
+        (10,535) (12,572) (16,645) (20,719) (24,792) (28,866) (32,939)
+      };
+      % Poseidon m=n=4
+      \addplot[tolred, mark=triangle, mark options=solid, dashed, mark size=2.5pt] coordinates {
+        (4,872) (5,909) (6,946) (7,982) (8,1019)
+        (10,1093) (12,1166) (16,1313) (20,1460) (24,1607) (28,1754) (32,1901)
+      };
+      \legend{Griffin ($m{=}n{=}2$), Griffin ($m{=}n{=}4$), Poseidon ($m{=}n{=}2$), Poseidon ($m{=}n{=}4$)}
+    \end{axis}
+  \end{tikzpicture}
+  \caption{Client-side proof size as a function of block tree height $h$ using quaternary trees. The anonymity set size per epoch is $4^{h-1} \times 4096$ transactions.}
+  \label{fig:proof-size-bench}
+\end{figure}
+
+\paragraph{Aggregator performance.}
+\Cref{fig:aggregator-bench} breaks down the aggregator's block building time into four phases for varying numbers of transactions in a block.
+First, user-submitted witness-instance pairs for transaction validity are \emph{verified} by checking public inputs and running the Nova verifier and decider.
+The remaining three phases constitute a single IVC prove step per transaction:
+the aggregator \emph{folds} the validated user pairs into an accumulated witness-instance pair,
+\emph{executes} the step circuit,
+and \emph{folds} the execution trace into the local witness-instance pair via \ac{IVC}.
+All four phases scale linearly with the number of transactions.
+Local instance folding dominates across all configurations, accounting for 51-60\% of the total runtime at 128 transactions, followed by user instance folding (19-21\%), step circuit synthesis (11-22\%), and validation (7-10\%).
+At 128 transactions, the total aggregation time ranges from 34.0\,s (Griffin, $m{=}n{=}2$) to 45.5\,s (Poseidon, $m{=}n{=}4$).
+
+\pgfplotsset{
+  % Common axis options for the grouped stacked bar chart
+  aggaxis/.style={
+    ybar stacked,
+    bar width=4pt,
+    symbolic x coords={8,16,32,64,128},
+    xtick=data,
+    x tick label style={font=\footnotesize},
+    y tick label style={font=\footnotesize},
+    xlabel style={font=\small},
+    ylabel style={font=\small},
+    enlarge x limits=0.12,
+    ymin=0, ymax=50,
+    width=\columnwidth,
+    height=7cm,
+    ymajorgrids=true,
+    grid style={line width=0.2pt, draw=gray!25},
+    major grid style={line width=0.3pt, draw=gray!40},
+  },
+  %% Poseidon m=n=2: solid fill, solid border
+  P2val/.style={fill=tolblue, draw=tolblue!80!black, line width=0.4pt},
+  P2fu/.style={fill=tolgreen, draw=tolgreen!80!black, line width=0.4pt},
+  P2syn/.style={fill=tolyellow, draw=tolyellow!80!black, line width=0.4pt},
+  P2fl/.style={fill=tolred, draw=tolred!80!black, line width=0.4pt},
+  %% Griffin m=n=2: no fill, solid colored border
+  G2val/.style={fill=white, draw=tolblue, line width=0.5pt},
+  G2fu/.style={fill=white, draw=tolgreen, line width=0.5pt},
+  G2syn/.style={fill=white, draw=tolyellow!80!black, line width=0.5pt},
+  G2fl/.style={fill=white, draw=tolred, line width=0.5pt},
+  %% Poseidon m=n=4: solid fill, hatched
+  P4val/.style={fill=tolblue, draw=tolblue!80!black, line width=0.4pt, postaction={pattern=north east lines, pattern color=white}},
+  P4fu/.style={fill=tolgreen, draw=tolgreen!80!black, line width=0.4pt, postaction={pattern=north east lines, pattern color=white}},
+  P4syn/.style={fill=tolyellow, draw=tolyellow!80!black, line width=0.4pt, postaction={pattern=north east lines, pattern color=white}},
+  P4fl/.style={fill=tolred, draw=tolred!80!black, line width=0.4pt, postaction={pattern=north east lines, pattern color=white}},
+  %% Griffin m=n=4: no fill, hatched
+  G4val/.style={fill=white, draw=tolblue, line width=0.5pt, postaction={pattern=north east lines, pattern color=tolblue}},
+  G4fu/.style={fill=white, draw=tolgreen, line width=0.5pt, postaction={pattern=north east lines, pattern color=tolgreen}},
+  G4syn/.style={fill=white, draw=tolyellow!80!black, line width=0.5pt, postaction={pattern=north east lines, pattern color=tolyellow!80!black}},
+  G4fl/.style={fill=white, draw=tolred, line width=0.5pt, postaction={pattern=north east lines, pattern color=tolred}},
+}
+
+\begin{figure}[!ht]
+  \centering
+  \begin{tikzpicture}
+    %%% Axis 1: Poseidon m=n=2 (solid, leftmost)
+    \begin{axis}[name=mainaxis, aggaxis, bar shift=-9pt,
+      xlabel={Number of transactions}, ylabel={Time (s)},
+    ]
+      \addplot[P2val] coordinates {(8,0.212) (16,0.421) (32,0.850) (64,1.682) (128,3.363)};
+      \addplot[P2fu] coordinates {(8,0.419) (16,0.884) (32,1.813) (64,3.908) (128,7.874)};
+      \addplot[P2syn] coordinates {(8,0.267) (16,0.531) (32,1.035) (64,2.089) (128,4.197)};
+      \addplot[P2fl] coordinates {(8,1.101) (16,2.496) (32,5.198) (64,10.558) (128,21.551)};
+    \end{axis}
+    %%% Axis 2: Griffin m=n=2 (no fill, solid border)
+    \begin{axis}[aggaxis, bar shift=-3pt,
+      axis x line=none, axis y line=none,
+      xtick=\empty, ytick=\empty,
+    ]
+      \addplot[G2val] coordinates {(8,0.212) (16,0.421) (32,0.850) (64,1.682) (128,3.363)};
+      \addplot[G2fu] coordinates {(8,0.423) (16,0.939) (32,1.774) (64,3.465) (128,7.230)};
+      \addplot[G2syn] coordinates {(8,0.366) (16,0.707) (32,1.432) (64,2.853) (128,5.708)};
+      \addplot[G2fl] coordinates {(8,0.918) (16,2.120) (32,4.226) (64,8.765) (128,17.638)};
+    \end{axis}
+    %%% Axis 3: Poseidon m=n=4 (solid fill, dashed border)
+    \begin{axis}[aggaxis, bar shift=3pt,
+      axis x line=none, axis y line=none,
+      xtick=\empty, ytick=\empty,
+    ]
+      \addplot[P4val] coordinates {(8,0.212) (16,0.421) (32,0.850) (64,1.682) (128,3.363)};
+      \addplot[P4fu] coordinates {(8,0.586) (16,1.034) (32,2.045) (64,4.235) (128,8.890)};
+      \addplot[P4syn] coordinates {(8,0.360) (16,0.717) (32,1.434) (64,2.876) (128,5.761)};
+      \addplot[P4fl] coordinates {(8,1.509) (16,3.257) (32,6.492) (64,13.318) (128,27.476)};
+    \end{axis}
+    %%% Axis 4: Griffin m=n=4 (no fill, dashed border)
+    \begin{axis}[aggaxis, bar shift=9pt,
+      axis x line=none, axis y line=none,
+      xtick=\empty, ytick=\empty,
+    ]
+      \addplot[G4val] coordinates {(8,0.212) (16,0.421) (32,0.850) (64,1.682) (128,3.363)};
+      \addplot[G4fu] coordinates {(8,0.453) (16,1.017) (32,1.808) (64,4.140) (128,7.663)};
+      \addplot[G4syn] coordinates {(8,0.536) (16,1.078) (32,2.129) (64,4.285) (128,8.564)};
+      \addplot[G4fl] coordinates {(8,1.048) (16,2.403) (32,4.787) (64,9.891) (128,20.031)};
+    \end{axis}
+    %%% Legend overlay (outside all axes to avoid symbolic coord issues)
+    \node[anchor=north west, draw=gray!60, fill=white, rounded corners=1.5pt,
+      inner sep=4pt]
+      at ([xshift=4pt, yshift=-4pt]mainaxis.north west) {%
+      \begin{tikzpicture}[
+        txt/.style={anchor=mid west, font=\scriptsize, inner sep=0pt, outer sep=0pt},
+      ]
+        %% Left column: phase colors.  Right column: config patterns.
+        %% sq side=0.25cm, col gap=0.12cm, row step=0.38cm, right col at x=3.1cm
+        % Row 0
+        \fill[fill=tolblue, draw=tolblue!80!black, line width=0.4pt]
+          (0,0) rectangle (0.25,0.25);
+        \node[txt] at (0.37, 0.125) {Verify user instances};
+        \fill[fill=gray!70, draw=gray!50!black, line width=0.4pt]
+          (3.1,0) rectangle (3.35,0.25);
+        \node[txt] at (3.47, 0.125) {Poseidon ($m{=}n{=}2$)};
+        % Row 1
+        \fill[fill=tolgreen, draw=tolgreen!80!black, line width=0.4pt]
+          (0,-0.38) rectangle (0.25,-0.13);
+        \node[txt] at (0.37, -0.255) {Fold user instances};
+        \fill[fill=white, draw=gray!50!black, line width=0.5pt]
+          (3.1,-0.38) rectangle (3.35,-0.13);
+        \node[txt] at (3.47, -0.255) {Griffin ($m{=}n{=}2$)};
+        % Row 2
+        \fill[fill=tolyellow, draw=tolyellow!80!black, line width=0.4pt]
+          (0,-0.76) rectangle (0.25,-0.51);
+        \node[txt] at (0.37, -0.635) {Execute step circuit};
+        \fill[fill=gray!70, draw=gray!50!black, line width=0.4pt]
+          (3.1,-0.76) rectangle (3.35,-0.51);
+        \fill[pattern=north east lines, pattern color=white]
+          (3.1,-0.76) rectangle (3.35,-0.51);
+        \node[txt] at (3.47, -0.635) {Poseidon ($m{=}n{=}4$)};
+        % Row 3
+        \fill[fill=tolred, draw=tolred!80!black, line width=0.4pt]
+          (0,-1.14) rectangle (0.25,-0.89);
+        \node[txt] at (0.37, -1.015) {Fold local instances};
+        \fill[fill=white, draw=gray!50!black, line width=0.5pt]
+          (3.1,-1.14) rectangle (3.35,-0.89);
+        \fill[pattern=north east lines, pattern color=gray!50!black]
+          (3.1,-1.14) rectangle (3.35,-0.89);
+        \node[txt] at (3.47, -1.015) {Griffin ($m{=}n{=}4$)};
+      \end{tikzpicture}%
+    };
+  \end{tikzpicture}
+
+  \caption{Aggregator-side block building time breakdown by phase.}
+  \label{fig:aggregator-bench}
+\end{figure}
+
+\paragraph{Throughput.}
+We consider regular transaction blocks where all senders have endorsed the committed \ac{UTXO} tree root.
+The block header consists of the transaction, public key, and nullifier tree roots, all 32-byte values, totalling 96~bytes.
+We assume MicroNova~\cite{SP:ZSCZ25} for the decider SNARK, with a compressed proof size of $\approx 12$\,KB.
+We assume 4 inputs per transaction and fix nullifier sizes to 32~bytes.
+We re-use Intmax2's proposed user-id size of ${\sim}\,4.15$~bytes, which makes it possible for \Protocol to accommodate more than the current world population.
+Finally, we assume a blob target of 14 per \ac{L1} block, yielding $14 \times 131072 \approx 1835$\,KB of available blob space.
+
+\begin{itemize}
+  \item \textit{Centralized setting.} In the centralized setup, the aggregator does not post nullifier values.
+The only per-transaction data is the sender's id (${\sim}\,4.15$~bytes).
+Dividing the available blob space (minus proof and header overhead) by the per-transaction data, we get:
+$$\frac{1835 \text{KB} - 12 \text{KB} - 0.096 \text{KB}}{{0.00415 \text{KB}}} \approx 439254$$
+transactions per \ac{L1} block, or with a block time of 12\,s, $\approx 36604$ \ac{TPS}.
+
+
+  \item \textit{Decentralized setting.} In the decentralized setup, the aggregator broadcasts along each sender id four input nullifier values.
+This requires $4.15 + 4 \times 32 = 132.15$~bytes per transaction, resulting in ${\approx}\,13796$ transactions per \ac{L1} block, i.e.\ ${\approx}\,1149$ \ac{TPS}.
+Note that one could also truncate nullifiers to 20~bytes, in which case $4.15 + 4 \times 20 = 84.15$~bytes per transaction is required, resulting in ${\approx}\,21668$ transactions per \ac{L1} block, i.e.\ ${\approx}\,1805$ \ac{TPS}.
+
+\end{itemize}
